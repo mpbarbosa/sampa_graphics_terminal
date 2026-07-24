@@ -1,0 +1,16 @@
+# Node / frontend
+node_modules/
+dist/
+*.tsbuildinfo
+.vite/
+
+# Rust
+target/
+**/target/
+
+# Tauri generated
+src-tauri/gen/
+
+# Editor / OS
+.DS_Store
+*.log
