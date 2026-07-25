@@ -2,44 +2,103 @@
 // Rust PTY core over Tauri IPC. Keeping this thin is deliberate — all terminal
 // behavior lives in pty-core so the renderer can be replaced later.
 
-import { Terminal } from "@xterm/xterm";
+import { Terminal, type ITerminalOptions, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import "./style.css";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
-const term = new Terminal({
-  // Nerd Fonts first so Powerline separators + prompt icons (p10k, starship) render
-  // instead of tofu; plain monospace fallbacks keep it working without them (M2 makes
-  // this configurable).
-  fontFamily:
-    '"MesloLGS NF", "Hack Nerd Font", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace',
-  fontSize: 14,
-  cursorBlink: true,
-  allowProposedApi: true,
-  // Capped scrollback ring (DESIGN.md §14); made configurable in M2.
-  scrollback: 10000,
-  theme: {
-    background: "#16161e",
-    foreground: "#c0caf5",
-    cursor: "#c0caf5",
-    black: "#15161e",
-    red: "#f7768e",
-    green: "#9ece6a",
-    yellow: "#e0af68",
-    blue: "#7aa2f7",
-    magenta: "#bb9af7",
-    cyan: "#7dcfff",
-    white: "#a9b1d6",
-  },
-});
+// Mirror of sampa_config::Config (the subset the renderer applies). The core owns
+// parsing/validation/defaults; here we just map it onto xterm.js (DESIGN.md §11).
+interface Config {
+  font: { family: string; size: number; ligatures: boolean };
+  colors: Record<string, string>;
+  window: { padding_x: number; padding_y: number; cols: number; rows: number };
+  scrollback: { lines: number };
+  cursor: { style: "block" | "bar" | "underline"; blink: boolean };
+  bell: { visual: boolean; audible: boolean };
+}
 
+function toTheme(c: Record<string, string>): ITheme {
+  return {
+    background: c.background,
+    foreground: c.foreground,
+    cursor: c.cursor,
+    selectionBackground: c.selection,
+    black: c.black,
+    red: c.red,
+    green: c.green,
+    yellow: c.yellow,
+    blue: c.blue,
+    magenta: c.magenta,
+    cyan: c.cyan,
+    white: c.white,
+    brightBlack: c.bright_black,
+    brightRed: c.bright_red,
+    brightGreen: c.bright_green,
+    brightYellow: c.bright_yellow,
+    brightBlue: c.bright_blue,
+    brightMagenta: c.bright_magenta,
+    brightCyan: c.bright_cyan,
+    brightWhite: c.bright_white,
+  };
+}
+
+function xtermOptions(cfg: Config): ITerminalOptions {
+  return {
+    allowProposedApi: true,
+    fontFamily: cfg.font.family,
+    fontSize: cfg.font.size,
+    cursorStyle: cfg.cursor.style,
+    cursorBlink: cfg.cursor.blink,
+    scrollback: cfg.scrollback.lines,
+    theme: toTheme(cfg.colors),
+  };
+}
+
+const termEl = document.getElementById("terminal")!;
+
+function applyPadding(cfg: Config): void {
+  termEl.style.padding = `${cfg.window.padding_y}px ${cfg.window.padding_x}px`;
+}
+
+// Config comes from the core (XDG file, live-reloaded). Build the terminal from it.
+let currentCfg = await invoke<Config>("get_config");
+
+const term = new Terminal(xtermOptions(currentCfg));
 const fit = new FitAddon();
 term.loadAddon(fit);
-term.open(document.getElementById("terminal")!);
+term.open(termEl);
+applyPadding(currentCfg);
 fit.fit();
 term.focus();
+
+// Re-apply on live config edits (DESIGN.md §11). xterm reads these option setters
+// immediately; a refit picks up any font-size change.
+function applyConfig(cfg: Config): void {
+  currentCfg = cfg;
+  const o = xtermOptions(cfg);
+  term.options.fontFamily = o.fontFamily;
+  term.options.fontSize = o.fontSize;
+  term.options.cursorStyle = o.cursorStyle;
+  term.options.cursorBlink = o.cursorBlink;
+  term.options.scrollback = o.scrollback;
+  term.options.theme = o.theme;
+  applyPadding(cfg);
+  syncSize();
+}
+void listen<Config>("config://changed", (e) => applyConfig(e.payload));
+void listen<string>("config://error", (e) =>
+  console.warn("[sampa] config error:", e.payload),
+);
+
+// Visual bell: briefly flash the surface when the shell rings BEL (config-gated).
+term.onBell(() => {
+  if (!currentCfg.bell.visual) return;
+  termEl.classList.add("bell-flash");
+  setTimeout(() => termEl.classList.remove("bell-flash"), 100);
+});
 
 const encoder = new TextEncoder();
 
@@ -157,7 +216,6 @@ async function handlePaste(text: string): Promise<void> {
   pasting = false;
 }
 
-const termEl = document.getElementById("terminal")!;
 termEl.addEventListener(
   "paste",
   (e: ClipboardEvent) => {

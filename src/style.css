@@ -24,6 +24,16 @@ body {
   height: 100%;
 }
 
+/* Visual bell: a brief translucent flash over the whole surface (config-gated). */
+.bell-flash::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: rgba(192, 202, 245, 0.22);
+  pointer-events: none;
+  z-index: 50;
+}
+
 /* In-webview confirmation modal (paste-safety; reused by later overlays). */
 .modal-overlay {
   position: fixed;

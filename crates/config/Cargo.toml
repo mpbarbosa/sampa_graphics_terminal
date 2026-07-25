@@ -1,0 +1,14 @@
+[package]
+name = "sampa-config"
+version = "0.1.0"
+edition = "2021"
+description = "Headless configuration model for the Sampa terminal (DESIGN.md §11)."
+license = "MIT"
+
+# Like pty-core, this crate has no GUI/webview dependency: it parses and validates
+# TOML into a plain data model that any frontend can consume. Kept unit-testable.
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+anyhow = "1"
