@@ -60,18 +60,19 @@ cargo run --manifest-path crates/pty-core/Cargo.toml --example echo
 
 ## Status
 
-**M1 — a usable terminal (in progress).** Building on the M0 echo scaffold toward the
-"real terminal" contract. What's here:
+**M2 — comfort (in progress).** M1 (the "real terminal" contract) is done and merged;
+M2 adds configuration. What's here:
 
-- [x] `pty-core`: spawn shell on a PTY, stream output, write input, resize, reap — **verified** against real zsh via the `echo` example.
-- [x] **Session table in the core** (`Sessions`) — id-keyed registry, unit-tested for exit-code capture and close-reaps-child.
-- [x] **Exit status**: the `pty://exit/<id>` event now carries `{ code, success, detail }` (clean exit vs. signal), rendered in the terminal.
-- [x] **Byte-safe I/O**: input is base64-encoded end-to-end, so control sequences and non-UTF-8 key encodings survive the JS↔Rust boundary.
-- [x] Tauri IPC bridge: `spawn_session` / `write_session` / `resize_session` / **`close_session`**.
-- [x] xterm.js frontend: 10k scrollback, bracketed paste, `Ctrl-Shift-C`/`Ctrl-Shift-V` clipboard, **multi-line paste confirmation**, teardown on window close.
-- [ ] Verify the M1 app matrix (vim/neovim/tmux/htop/less) on a machine with the Tauri system deps — see [docs/ROADMAP.md](docs/ROADMAP.md) M1 exit criteria.
+- [x] **M1**: core session table, byte-safe I/O, `{ code, success, detail }` exit events, 10k scrollback, bracketed paste + multi-line paste confirmation, `Ctrl-Shift-C/V` clipboard — verified live against zsh/vim/job-control.
+- [x] **Config model** (`crates/config`, `sampa-config`): TOML at `$XDG_CONFIG_HOME/sampa/config.toml`, per-field defaults, XDG path, unknown-key rejection, validation, documented default written on first run (6 unit tests).
+- [x] **Live reload**: a `notify` file-watcher re-applies theme, font, cursor, scrollback, and padding to a running window on save — no restart (verified live).
+- [x] `--config FILE` override; config-driven shell (`shell.program`/`args`/`login`), visual bell.
+- [ ] **Tabs, splits, search + keybinding table** (M2 Phase 2.3) — next increment.
 - [ ] Linux integration (`.desktop`, `-e`, default-terminal registration) — M3.
-- [ ] The signature features: command palette, live man panel, safe auto-run preview — M4.
+- [ ] Signature features: command palette, live man panel, safe auto-run preview — M4.
+
+Config lives at `$XDG_CONFIG_HOME/sampa/config.toml` (created with documented defaults on
+first run); edit it and changes apply live.
 
 The detailed, phased roadmap (M1 → v1) is in **[docs/ROADMAP.md](docs/ROADMAP.md)**
 (expanded from the milestone skeleton in [docs/DESIGN.md §18](docs/DESIGN.md)).

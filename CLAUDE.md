@@ -17,11 +17,13 @@ npm run build                  # frontend typecheck + vite build (tsc --noEmit &
 # Verify Layer 1 (PTY core) with no GUI — fastest feedback loop for core changes:
 cargo run --manifest-path crates/pty-core/Cargo.toml --example echo
 
-cargo build --manifest-path crates/pty-core/Cargo.toml    # build/check the core alone
-cargo build --manifest-path src-tauri/Cargo.toml          # build the Tauri app crate
+# Headless core crates (fast; no GUI/system deps needed):
+cargo test  --manifest-path crates/pty-core/Cargo.toml    # PTY layer (session table, exit reaping)
+cargo test  --manifest-path crates/config/Cargo.toml      # config model (defaults, TOML, validation)
+cargo build --manifest-path src-tauri/Cargo.toml          # the Tauri app crate (needs GTK/webkit deps)
 ```
 
-There is no test suite yet. The `echo` example is the current smoke test for the core. `npm run dev` (vite alone) will not have the Tauri IPC backend — always use `npm run tauri dev` to exercise the real app.
+The headless crates (`pty-core`, `config`) have unit tests and build without the GUI toolchain — use them as the fast inner loop. `npm run dev` (vite alone) has no Tauri IPC backend — always use `npm run tauri dev` to exercise the real app.
 
 Building the Tauri app requires the Linux system deps in `README.md` (webkit2gtk, GTK dev libs, etc.).
 
@@ -32,8 +34,9 @@ The core design principle (DESIGN.md §4) is a **renderer-agnostic core**: a hea
 Four layers across two halves:
 
 - **Layer 1 — PTY/process** (`crates/pty-core/`): pure-Rust, **zero GUI dependency** so it builds and tests standalone. Spawns the shell on a PTY via `portable-pty` (which handles the POSIX openpty/setsid/TIOCSCTTY dance, so job control and terminal signals work). Streams output bytes over an `mpsc::Sender` from a dedicated reader thread. This is the durable, long-lived asset. **Keep it free of any Tauri/webview imports.**
-- **App shell** (`src-tauri/`): the only layer that knows about the webview. Bridges `pty-core` to the frontend over Tauri IPC. Holds an `AppState` session table (`session_id → PtyHandle`). Depends on `pty-core` by path.
-- **Layers 3–4 — renderer + input** (`src/main.ts`, `index.html`): xterm.js in the Tauri webview. Deliberately thin — all terminal behavior belongs in the core.
+- **Config model** (`crates/config/`, `sampa-config`): another headless, GUI-free crate — serde/TOML `Config` with per-field defaults and XDG path resolution (DESIGN.md §11). Same rule as `pty-core`: no Tauri/webview imports.
+- **App shell** (`src-tauri/`): the only layer that knows about the webview. Bridges the headless crates to the frontend over Tauri IPC. Owns the `Sessions` table (from `pty-core`) and a `ConfigState`, plus a `notify` file-watcher that emits `config://changed` on config edits. Depends on `pty-core` and `sampa-config` by path.
+- **Layers 3–4 — renderer + input** (`src/main.ts`, `index.html`): xterm.js in the Tauri webview. Deliberately thin — all terminal behavior belongs in the core. Fetches `get_config` on load and maps `Config` onto xterm options; re-applies on the `config://changed` event.
 
 ### The IPC seam (DESIGN.md §9)
 
