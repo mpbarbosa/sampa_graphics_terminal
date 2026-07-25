@@ -1,37 +1,37 @@
 //! Tauri application shell: bridges the headless `pty-core` (Layer 1) to the
 //! xterm.js frontend over Tauri's IPC (commands in, events out). This is the
-//! only layer that knows about the webview; all terminal behavior lives in
-//! `pty-core`, so it can be swapped for a native renderer later.
+//! only layer that knows about the webview; all terminal + session behavior lives
+//! in `pty-core`, so it can be swapped for a native renderer later.
 //!
 //! Protocol (see docs/DESIGN.md §9):
-//!   frontend -> backend : `spawn_session`, `write_session`, `resize_session`
+//!   frontend -> backend : `spawn_session`, `write_session`, `resize_session`,
+//!                         `close_session`
 //!   backend  -> frontend: event `pty://output/<id>` (base64 bytes),
-//!                         event `pty://exit/<id>`
-
-use std::collections::HashMap;
-use std::sync::mpsc::channel;
-use std::sync::Mutex;
+//!                         event `pty://exit/<id>`  (`{ code, success, detail }`)
 
 use base64::Engine;
+use serde::Serialize;
 use tauri::{Emitter, State};
 
-use pty_core::{spawn, PtyHandle, SpawnConfig};
+use pty_core::{PtyEvent, Sessions, SpawnConfig};
 
-#[derive(Default)]
-struct AppState {
-    sessions: Mutex<HashMap<u32, PtyHandle>>,
-    next_id: Mutex<u32>,
+/// Payload for the `pty://exit/<id>` event.
+#[derive(Clone, Serialize)]
+struct ExitPayload {
+    code: u32,
+    success: bool,
+    detail: String,
 }
 
 /// Start a shell session sized `cols`x`rows`; returns its session id.
 #[tauri::command]
 fn spawn_session(
     app: tauri::AppHandle,
-    state: State<'_, AppState>,
+    sessions: State<'_, Sessions>,
     cols: u16,
     rows: u16,
 ) -> Result<u32, String> {
-    let (tx, rx) = channel::<Vec<u8>>();
+    let (tx, rx) = std::sync::mpsc::channel::<PtyEvent>();
 
     let cfg = SpawnConfig {
         shell: std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into()),
@@ -41,64 +41,79 @@ fn spawn_session(
         rows,
         env: vec![],
     };
-    let handle = spawn(cfg, tx).map_err(|e| e.to_string())?;
+    let id = sessions.spawn(cfg, tx).map_err(|e| e.to_string())?;
 
-    let id = {
-        let mut n = state.next_id.lock().unwrap();
-        *n += 1;
-        *n
-    };
-    state.sessions.lock().unwrap().insert(id, handle);
-
-    // Pump PTY output to the webview. Bytes may be partial UTF-8 (mid escape
-    // sequence), so we base64 them and let xterm.js reassemble on the JS side.
+    // Pump this session's event stream to the webview. Output bytes may be partial
+    // UTF-8 (mid escape sequence), so we base64 them and let xterm.js reassemble on
+    // the JS side. The loop ends when the shell exits (the stream yields Exit) or
+    // the sender is dropped.
     std::thread::spawn(move || {
         let b64 = base64::engine::general_purpose::STANDARD;
-        while let Ok(bytes) = rx.recv() {
-            if app
-                .emit(&format!("pty://output/{id}"), b64.encode(&bytes))
-                .is_err()
-            {
-                break;
+        while let Ok(event) = rx.recv() {
+            let ok = match event {
+                PtyEvent::Output(bytes) => app
+                    .emit(&format!("pty://output/{id}"), b64.encode(&bytes))
+                    .is_ok(),
+                PtyEvent::Exit(info) => {
+                    let _ = app.emit(
+                        &format!("pty://exit/{id}"),
+                        ExitPayload {
+                            code: info.code,
+                            success: info.success,
+                            detail: info.detail,
+                        },
+                    );
+                    break;
+                }
+            };
+            if !ok {
+                break; // webview gone
             }
         }
-        let _ = app.emit(&format!("pty://exit/{id}"), ());
     });
 
     Ok(id)
 }
 
-/// Forward typed/pasted input to a session's shell.
+/// Forward typed/pasted input to a session's shell. `data` is base64 so raw bytes
+/// (control chars, non-UTF-8 key encodings) survive the JS↔Rust boundary intact.
 #[tauri::command]
-fn write_session(state: State<'_, AppState>, session: u32, data: String) -> Result<(), String> {
-    if let Some(h) = state.sessions.lock().unwrap().get_mut(&session) {
-        h.write(data.as_bytes()).map_err(|e| e.to_string())?;
-    }
+fn write_session(sessions: State<'_, Sessions>, session: u32, data: String) -> Result<(), String> {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data.as_bytes())
+        .map_err(|e| e.to_string())?;
+    // A write to a just-closed session is not an error worth surfacing to the UI.
+    let _ = sessions.write(session, &bytes);
     Ok(())
 }
 
 /// Resize a session (drives SIGWINCH in the shell).
 #[tauri::command]
 fn resize_session(
-    state: State<'_, AppState>,
+    sessions: State<'_, Sessions>,
     session: u32,
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
-    if let Some(h) = state.sessions.lock().unwrap().get(&session) {
-        h.resize(cols, rows, 0, 0).map_err(|e| e.to_string())?;
-    }
+    let _ = sessions.resize(session, cols, rows);
     Ok(())
+}
+
+/// Tear down a session (hang up the shell and reap it).
+#[tauri::command]
+fn close_session(sessions: State<'_, Sessions>, session: u32) {
+    sessions.close(session);
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .manage(AppState::default())
+        .manage(Sessions::new())
         .invoke_handler(tauri::generate_handler![
             spawn_session,
             write_session,
-            resize_session
+            resize_session,
+            close_session
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

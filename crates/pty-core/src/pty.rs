@@ -10,7 +10,7 @@ use std::sync::mpsc::Sender;
 use std::thread;
 
 use anyhow::Result;
-use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 
 /// How to start a session.
 pub struct SpawnConfig {
@@ -27,12 +27,45 @@ pub struct SpawnConfig {
     pub env: Vec<(String, String)>,
 }
 
-/// A live PTY session. Dropping it lets the child be reaped by the OS; call
-/// [`PtyHandle::kill`] for an explicit teardown.
+/// How a session ended. Reported once, after all output has been drained.
+///
+/// `portable-pty` flattens the platform wait-status into an exit `code` plus a
+/// success flag; it does not expose the raw signal number through its public
+/// API, so a signal death shows up as `success == false` with `detail` naming
+/// the signal (e.g. `"Terminated by Interrupt"`).
+#[derive(Debug, Clone)]
+pub struct ExitInfo {
+    /// Process exit code (1 when terminated by a signal).
+    pub code: u32,
+    /// True only for a clean, code-0, non-signal exit.
+    pub success: bool,
+    /// Human-readable status: `"Success"`, `"Exited with code 3"`, or
+    /// `"Terminated by <signal>"`.
+    pub detail: String,
+}
+
+/// A single item in a session's event stream. Ordering is guaranteed: every
+/// [`PtyEvent::Output`] a session will ever produce is delivered before its
+/// terminal [`PtyEvent::Exit`], because both come from the same reader thread.
+#[derive(Debug, Clone)]
+pub enum PtyEvent {
+    /// Raw bytes from the shell. May split mid-UTF-8 / mid-escape-sequence — do
+    /// not assume a chunk is a valid string.
+    Output(Vec<u8>),
+    /// The shell exited; the stream is finished.
+    Exit(ExitInfo),
+}
+
+/// A live PTY session. Dropping it closes the master, but a shell whose reader
+/// clone is still open (it always is, in the reader thread) only receives its
+/// hang-up when [`PtyHandle::kill`] signals it — so explicit teardown goes
+/// through `kill`, not `drop`.
 pub struct PtyHandle {
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
-    child: Box<dyn Child + Send + Sync>,
+    /// Signals the child independently of the reader thread's blocking `wait`.
+    killer: Box<dyn ChildKiller + Send + Sync>,
+    pid: Option<u32>,
 }
 
 impl PtyHandle {
@@ -57,18 +90,20 @@ impl PtyHandle {
 
     /// The shell's process id, if known.
     pub fn pid(&self) -> Option<u32> {
-        self.child.process_id()
+        self.pid
     }
 
-    /// Send SIGHUP/kill to the child.
+    /// Hang up the child (SIGHUP). The shell exits, the reader thread then sees
+    /// EOF and reaps it — so this drives the session's final `Exit` event.
     pub fn kill(&mut self) -> std::io::Result<()> {
-        self.child.kill()
+        self.killer.kill()
     }
 }
 
-/// Spawn `cfg.shell` on a fresh PTY. Output bytes are streamed to `on_output`
-/// from a dedicated reader thread; the channel closes when the shell exits.
-pub fn spawn(cfg: SpawnConfig, on_output: Sender<Vec<u8>>) -> Result<PtyHandle> {
+/// Spawn `cfg.shell` on a fresh PTY. Events (`Output`, then a terminal `Exit`)
+/// are streamed to `on_event` from a dedicated reader thread; the channel closes
+/// when that thread finishes.
+pub fn spawn(cfg: SpawnConfig, on_event: Sender<PtyEvent>) -> Result<PtyHandle> {
     let pty_system = native_pty_system();
     let pair = pty_system.openpty(PtySize {
         rows: cfg.rows,
@@ -92,31 +127,53 @@ pub fn spawn(cfg: SpawnConfig, on_output: Sender<Vec<u8>>) -> Result<PtyHandle> 
         cmd.env(k, v);
     }
 
-    let child = pair.slave.spawn_command(cmd)?;
+    let mut child = pair.slave.spawn_command(cmd)?;
     // The parent must not keep the slave open, or read() never sees EOF.
     drop(pair.slave);
+
+    let pid = child.process_id();
+    // A killer we can signal from elsewhere while the reader thread blocks in wait().
+    let killer = child.clone_killer();
 
     let mut reader = pair.master.try_clone_reader()?;
     let writer = pair.master.take_writer()?;
 
+    // One thread owns the child and drains output to EOF, *then* reaps. Doing both
+    // here (rather than a separate waiter thread) is what guarantees every Output
+    // is sent before Exit.
     thread::spawn(move || {
         let mut buf = [0u8; 8192];
         loop {
             match reader.read(&mut buf) {
                 Ok(0) => break, // EOF: shell exited
                 Ok(n) => {
-                    if on_output.send(buf[..n].to_vec()).is_err() {
-                        break; // receiver dropped
+                    if on_event.send(PtyEvent::Output(buf[..n].to_vec())).is_err() {
+                        return; // receiver dropped; don't bother reaping into the void
                     }
                 }
                 Err(_) => break,
             }
         }
+        // EOF reached: the child is exiting; wait() returns its status promptly.
+        let info = match child.wait() {
+            Ok(status) => ExitInfo {
+                code: status.exit_code(),
+                success: status.success(),
+                detail: status.to_string(),
+            },
+            Err(e) => ExitInfo {
+                code: 1,
+                success: false,
+                detail: format!("wait failed: {e}"),
+            },
+        };
+        let _ = on_event.send(PtyEvent::Exit(info));
     });
 
     Ok(PtyHandle {
         master: pair.master,
         writer,
-        child,
+        killer,
+        pid,
     })
 }

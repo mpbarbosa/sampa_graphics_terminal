@@ -60,17 +60,21 @@ cargo run --manifest-path crates/pty-core/Cargo.toml --example echo
 
 ## Status
 
-**M0 — echo / proof of life.** Type in a native window, see your shell's output, resize
-works. What's here:
+**M1 — a usable terminal (in progress).** Building on the M0 echo scaffold toward the
+"real terminal" contract. What's here:
 
 - [x] `pty-core`: spawn shell on a PTY, stream output, write input, resize, reap — **verified** against real zsh via the `echo` example.
-- [x] Tauri IPC bridge (`spawn_session` / `write_session` / `resize_session` + output/exit events).
-- [x] xterm.js frontend wired to the core.
-- [ ] Full input encoding, scrollback/selection/clipboard polish, tabs, config, themes.
-- [ ] Linux integration (`.desktop`, `-e`, default-terminal registration).
-- [ ] The signature features: command palette, live man panel, safe auto-run preview.
+- [x] **Session table in the core** (`Sessions`) — id-keyed registry, unit-tested for exit-code capture and close-reaps-child.
+- [x] **Exit status**: the `pty://exit/<id>` event now carries `{ code, success, detail }` (clean exit vs. signal), rendered in the terminal.
+- [x] **Byte-safe I/O**: input is base64-encoded end-to-end, so control sequences and non-UTF-8 key encodings survive the JS↔Rust boundary.
+- [x] Tauri IPC bridge: `spawn_session` / `write_session` / `resize_session` / **`close_session`**.
+- [x] xterm.js frontend: 10k scrollback, bracketed paste, `Ctrl-Shift-C`/`Ctrl-Shift-V` clipboard, **multi-line paste confirmation**, teardown on window close.
+- [ ] Verify the M1 app matrix (vim/neovim/tmux/htop/less) on a machine with the Tauri system deps — see [docs/ROADMAP.md](docs/ROADMAP.md) M1 exit criteria.
+- [ ] Linux integration (`.desktop`, `-e`, default-terminal registration) — M3.
+- [ ] The signature features: command palette, live man panel, safe auto-run preview — M4.
 
-The roadmap (M1 → v1) is in **[docs/DESIGN.md §18](docs/DESIGN.md)**.
+The detailed, phased roadmap (M1 → v1) is in **[docs/ROADMAP.md](docs/ROADMAP.md)**
+(expanded from the milestone skeleton in [docs/DESIGN.md §18](docs/DESIGN.md)).
 
 ## License
 

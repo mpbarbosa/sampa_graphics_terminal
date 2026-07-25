@@ -6,10 +6,10 @@
 use std::sync::mpsc::channel;
 use std::time::Duration;
 
-use pty_core::{spawn, SpawnConfig};
+use pty_core::{spawn, PtyEvent, SpawnConfig};
 
 fn main() -> anyhow::Result<()> {
-    let (tx, rx) = channel::<Vec<u8>>();
+    let (tx, rx) = channel::<PtyEvent>();
 
     let mut pty = spawn(
         SpawnConfig {
@@ -25,12 +25,17 @@ fn main() -> anyhow::Result<()> {
 
     eprintln!("[spawned shell, pid {:?}]", pty.pid());
 
-    // Run a command and exit so the channel closes cleanly.
+    // Run a command and exit so the stream closes cleanly.
     pty.write(b"echo \"hello from $ZSH_NAME ${ZSH_VERSION:-$0}\"; exit\n")?;
 
-    while let Ok(bytes) = rx.recv_timeout(Duration::from_secs(3)) {
-        print!("{}", String::from_utf8_lossy(&bytes));
+    while let Ok(event) = rx.recv_timeout(Duration::from_secs(3)) {
+        match event {
+            PtyEvent::Output(bytes) => print!("{}", String::from_utf8_lossy(&bytes)),
+            PtyEvent::Exit(info) => {
+                eprintln!("\n[session ended: {} (code {})]", info.detail, info.code);
+                break;
+            }
+        }
     }
-    eprintln!("\n[session ended]");
     Ok(())
 }
