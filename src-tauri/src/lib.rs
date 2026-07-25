@@ -126,6 +126,12 @@ fn get_config(config: State<'_, ConfigState>) -> Config {
     config.current.lock().unwrap().clone()
 }
 
+/// Quit the app (used when the last tab is closed).
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
 /// Resolve the config path (`--config PATH` overrides the XDG default), and load it,
 /// writing the documented default to disk on first run so there's something to edit.
 fn init_config() -> (Config, Option<PathBuf>) {
@@ -224,7 +230,8 @@ pub fn run() {
             write_session,
             resize_session,
             close_session,
-            get_config
+            get_config,
+            quit_app
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

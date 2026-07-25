@@ -23,6 +23,7 @@ pub struct Config {
     pub shell: Shell,
     pub cursor: Cursor,
     pub bell: Bell,
+    pub keybindings: Keybindings,
     /// Signature-feature toggles (wired up in M4); present now so configs are
     /// forward-compatible.
     pub features: Features,
@@ -38,6 +39,7 @@ impl Default for Config {
             shell: Shell::default(),
             cursor: Cursor::default(),
             bell: Bell::default(),
+            keybindings: Keybindings::default(),
             features: Features::default(),
         }
     }
@@ -211,6 +213,41 @@ impl Default for Bell {
     }
 }
 
+/// Chord → action bindings, reserved to the `Ctrl+Shift+*` namespace so shell keys
+/// aren't shadowed (DESIGN.md §8.4). Values are chords like `"Ctrl+Shift+T"`; the
+/// frontend parses and matches them (key tokens are physical, layout-independent —
+/// e.g. `T`, `Right`, `Tab`, `Equal`, `Minus`, `0`). Unbound chords fall through to
+/// the shell. Paste stays on the native Ctrl+Shift+V / middle-click path.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Keybindings {
+    pub new_tab: String,
+    pub close_tab: String,
+    pub next_tab: String,
+    pub prev_tab: String,
+    pub copy: String,
+    pub search: String,
+    pub zoom_in: String,
+    pub zoom_out: String,
+    pub zoom_reset: String,
+}
+
+impl Default for Keybindings {
+    fn default() -> Self {
+        Self {
+            new_tab: "Ctrl+Shift+T".into(),
+            close_tab: "Ctrl+Shift+W".into(),
+            next_tab: "Ctrl+Shift+Right".into(),
+            prev_tab: "Ctrl+Shift+Left".into(),
+            copy: "Ctrl+Shift+C".into(),
+            search: "Ctrl+Shift+F".into(),
+            zoom_in: "Ctrl+Shift+Equal".into(),
+            zoom_out: "Ctrl+Shift+Minus".into(),
+            zoom_reset: "Ctrl+Shift+0".into(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Features {
@@ -323,6 +360,17 @@ blink = true
 visual = true
 audible = false
 
+[keybindings]        # app actions; reserved to the Ctrl+Shift+* namespace
+new_tab = "Ctrl+Shift+T"
+close_tab = "Ctrl+Shift+W"
+next_tab = "Ctrl+Shift+Right"
+prev_tab = "Ctrl+Shift+Left"
+copy = "Ctrl+Shift+C"
+search = "Ctrl+Shift+F"
+zoom_in = "Ctrl+Shift+Equal"
+zoom_out = "Ctrl+Shift+Minus"
+zoom_reset = "Ctrl+Shift+0"
+
 [features]          # signature features, wired up in M4
 palette = false
 man = false
@@ -332,6 +380,15 @@ preview = false
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keybindings_default_and_override() {
+        assert_eq!(Config::default().keybindings.new_tab, "Ctrl+Shift+T");
+        let c = Config::from_toml("[keybindings]\nnext_tab = \"Ctrl+Shift+Tab\"\n").unwrap();
+        assert_eq!(c.keybindings.next_tab, "Ctrl+Shift+Tab");
+        // Unspecified bindings keep their defaults.
+        assert_eq!(c.keybindings.close_tab, "Ctrl+Shift+W");
+    }
 
     #[test]
     fn default_is_stable() {

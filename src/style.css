@@ -14,14 +14,133 @@ body {
   overflow: hidden;
 }
 
-#terminal {
-  position: fixed;
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* Tab bar. Hidden by a single-tab rule below so one shell looks chrome-free. */
+#tabbar {
+  display: flex;
+  align-items: stretch;
+  height: 34px;
+  flex: 0 0 auto;
+  background: #1a1b26;
+  border-bottom: 1px solid #2a2e42;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+#tabbar::-webkit-scrollbar {
+  display: none;
+}
+#app.single-tab #tabbar {
+  display: none;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  max-width: 220px;
+  color: #7a819e;
+  border-right: 1px solid #2a2e42;
+  cursor: default;
+  font: 12px ui-sans-serif, system-ui, sans-serif;
+  white-space: nowrap;
+  user-select: none;
+}
+.tab.active {
+  background: #16161e;
+  color: #c0caf5;
+}
+.tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tab-close,
+.tab-new {
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.6;
+  font-size: 13px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.tab-close:hover,
+.tab-new:hover {
+  opacity: 1;
+  background: #2a2e42;
+}
+.tab-new {
+  padding: 0 12px;
+  color: #7a819e;
+}
+
+#content {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.term-pane {
+  position: absolute;
   inset: 0;
-  padding: 8px 4px 8px 10px;
+}
+.term-pane[hidden] {
+  display: none;
 }
 
 .xterm {
   height: 100%;
+}
+
+/* Search overlay (Ctrl+Shift+F). */
+#search {
+  position: absolute;
+  top: 8px;
+  right: 14px;
+  z-index: 60;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding: 5px 6px;
+  background: #1a1b26;
+  border: 1px solid #2a2e42;
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+#search[hidden] {
+  display: none;
+}
+#search input {
+  width: 200px;
+  padding: 4px 8px;
+  border: 1px solid #2a2e42;
+  border-radius: 5px;
+  background: #16161e;
+  color: #c0caf5;
+  font: 13px ui-monospace, monospace;
+  outline: none;
+}
+#search input:focus {
+  border-color: #7aa2f7;
+}
+#search button {
+  border: none;
+  background: #24283b;
+  color: #c0caf5;
+  cursor: pointer;
+  border-radius: 5px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+#search button:hover {
+  background: #2f3549;
 }
 
 /* Visual bell: a brief translucent flash over the whole surface (config-gated). */

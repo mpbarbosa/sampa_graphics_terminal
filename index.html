@@ -6,7 +6,16 @@
     <title>Sampa Terminal</title>
   </head>
   <body>
-    <div id="terminal"></div>
+    <div id="app">
+      <div id="tabbar" role="tablist"></div>
+      <div id="content"></div>
+      <div id="search" hidden>
+        <input id="search-input" type="text" placeholder="Search…" spellcheck="false" />
+        <button id="search-prev" title="Previous (Shift+Enter)">↑</button>
+        <button id="search-next" title="Next (Enter)">↓</button>
+        <button id="search-close" title="Close (Esc)">✕</button>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
