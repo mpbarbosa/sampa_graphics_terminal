@@ -1,0 +1,17 @@
+[package]
+name = "pty-core"
+version = "0.1.0"
+edition = "2021"
+description = "Headless PTY / process layer for the Sampa graphical terminal (Layer 1)."
+license = "MIT"
+
+# This crate is deliberately free of any GUI/webview dependency so it can be
+# built and unit-tested on its own (see `examples/echo.rs`). The Tauri app in
+# ../../src-tauri depends on it by path.
+
+[dependencies]
+portable-pty = "0.8"
+anyhow = "1"
+
+[[example]]
+name = "echo"
