@@ -173,7 +173,12 @@ termEl.addEventListener(
 // (DESIGN.md §8.4). Returning false stops xterm from also treating it as input.
 // (Ctrl-Shift-V is handled by the native paste event above, not here.)
 term.attachCustomKeyEventHandler((e): boolean => {
-  if (e.type === "keydown" && e.ctrlKey && e.shiftKey && e.code === "KeyC") {
+  if (
+    e.type === "keydown" &&
+    e.ctrlKey &&
+    e.shiftKey &&
+    (e.key?.toLowerCase() === "c" || e.code === "KeyC")
+  ) {
     const sel = term.getSelection();
     if (sel) {
       void navigator.clipboard.writeText(sel);
