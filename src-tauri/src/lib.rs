@@ -10,7 +10,10 @@
 //!                         `pty://exit/<id>` ({ code, success, detail }),
 //!                         `config://changed` (Config), `config://error` (string)
 
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::Sender;
 use std::sync::Mutex;
 
 use base64::Engine;
@@ -19,11 +22,37 @@ use serde::Serialize;
 use tauri::{Emitter, Manager, State};
 
 use pty_core::{PtyEvent, Sessions, SpawnConfig};
+use sampa_cli::CliArgs;
 use sampa_config::Config;
 
 /// The live configuration (the watcher keeps its own copy of the path).
 struct ConfigState {
     current: Mutex<Config>,
+}
+
+/// Parsed command line, plus a one-shot flag: the CLI overrides (`-e`, cwd, login)
+/// apply only to the *first* session, so new tabs open a normal shell.
+struct CliState {
+    args: CliArgs,
+    first_spawn: AtomicBool,
+}
+
+/// Launch-time options the frontend needs (`--hold`, `--title`).
+#[derive(Clone, Serialize)]
+struct LaunchOptions {
+    hold: bool,
+    title: Option<String>,
+    exec: bool,
+}
+
+/// Per-session "start pumping" gates. `spawn_session` parks each session's output
+/// pump on its gate until the frontend has attached its listeners and calls
+/// `session_ready` — otherwise a fast `-e` command can exit before anyone is
+/// listening and its output is lost. Buffered PTY output waits in the channel
+/// meanwhile, so nothing is dropped.
+#[derive(Default)]
+struct ReadyGate {
+    map: Mutex<HashMap<u32, Sender<()>>>,
 }
 
 /// Payload for the `pty://exit/<id>` event.
@@ -41,35 +70,59 @@ fn spawn_session(
     app: tauri::AppHandle,
     sessions: State<'_, Sessions>,
     config: State<'_, ConfigState>,
+    cli: State<'_, CliState>,
+    ready: State<'_, ReadyGate>,
     cols: u16,
     rows: u16,
 ) -> Result<u32, String> {
     let (tx, rx) = std::sync::mpsc::channel::<PtyEvent>();
 
     let shell_cfg = config.current.lock().unwrap().shell.clone();
-    let shell = shell_cfg
-        .program
-        .clone()
-        .or_else(|| std::env::var("SHELL").ok())
-        .unwrap_or_else(|| "/bin/zsh".into());
-    let mut args = shell_cfg.args.clone();
-    if shell_cfg.login && !args.iter().any(|a| a == "-l" || a == "--login") {
-        args.insert(0, "-l".into());
-    }
+    // CLI overrides (-e/cwd/login) apply only to the first session.
+    let apply_cli = cli.first_spawn.swap(false, Ordering::SeqCst);
+
+    let (shell, args) = match apply_cli.then(|| cli.args.exec.clone()).flatten() {
+        // `-e CMD ARGS…`: run the command instead of the shell (argv is non-empty).
+        Some(exec) => (exec[0].clone(), exec[1..].to_vec()),
+        None => {
+            let program = shell_cfg
+                .program
+                .clone()
+                .or_else(|| std::env::var("SHELL").ok())
+                .unwrap_or_else(|| "/bin/zsh".into());
+            let mut a = shell_cfg.args.clone();
+            let login = shell_cfg.login || (apply_cli && cli.args.login);
+            if login && !a.iter().any(|x| x == "-l" || x == "--login") {
+                a.insert(0, "-l".into());
+            }
+            (program, a)
+        }
+    };
+
+    let cwd = apply_cli
+        .then(|| cli.args.working_directory.clone())
+        .flatten()
+        .or_else(|| std::env::var("HOME").ok());
 
     let cfg = SpawnConfig {
         shell,
         args,
-        cwd: std::env::var("HOME").ok(),
+        cwd,
         cols,
         rows,
         env: vec![],
     };
     let id = sessions.spawn(cfg, tx).map_err(|e| e.to_string())?;
 
+    // Gate the pump until the frontend attaches listeners (see ReadyGate).
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel::<()>();
+    ready.map.lock().unwrap().insert(id, ready_tx);
+
     // Pump this session's event stream to the webview. Output bytes may be partial
     // UTF-8 (mid escape sequence), so we base64 them and let xterm.js reassemble.
     std::thread::spawn(move || {
+        // Wait until the frontend is listening (or the gate is dropped).
+        let _ = ready_rx.recv();
         let b64 = base64::engine::general_purpose::STANDARD;
         while let Ok(event) = rx.recv() {
             let ok = match event {
@@ -120,6 +173,14 @@ fn close_session(sessions: State<'_, Sessions>, session: u32) {
     sessions.close(session);
 }
 
+/// The frontend has attached its listeners for `session`; release its output pump.
+#[tauri::command]
+fn session_ready(ready: State<'_, ReadyGate>, session: u32) {
+    if let Some(tx) = ready.map.lock().unwrap().remove(&session) {
+        let _ = tx.send(());
+    }
+}
+
 /// The current configuration, for the frontend to apply on startup.
 #[tauri::command]
 fn get_config(config: State<'_, ConfigState>) -> Config {
@@ -132,13 +193,19 @@ fn quit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
-/// Resolve the config path (`--config PATH` overrides the XDG default), and load it,
-/// writing the documented default to disk on first run so there's something to edit.
-fn init_config() -> (Config, Option<PathBuf>) {
-    let explicit = std::env::args()
-        .skip_while(|a| a != "--config")
-        .nth(1)
-        .map(PathBuf::from);
+/// Launch-time options from the command line (`--hold`, `--title`).
+#[tauri::command]
+fn get_launch_options(cli: State<'_, CliState>) -> LaunchOptions {
+    LaunchOptions {
+        hold: cli.args.hold,
+        title: cli.args.title.clone(),
+        exec: cli.args.exec.is_some(),
+    }
+}
+
+/// Load the config from `explicit` (else the XDG default), writing the documented
+/// default to disk on first run so there's something to edit.
+fn init_config(explicit: Option<PathBuf>) -> (Config, Option<PathBuf>) {
     let path = explicit.or_else(sampa_config::default_config_path);
 
     let Some(p) = path.clone() else {
@@ -212,14 +279,38 @@ fn start_config_watcher(app: tauri::AppHandle, path: PathBuf) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let (config, path) = init_config();
+    let cli = sampa_cli::parse(&std::env::args().skip(1).collect::<Vec<_>>());
+    if cli.help {
+        print!("{}", sampa_cli::HELP);
+        std::process::exit(0);
+    }
+    if cli.version {
+        println!("sampa {}", env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
+    for w in &cli.warnings {
+        eprintln!("[sampa] {w}");
+    }
+
+    let (config, path) = init_config(cli.config.clone().map(PathBuf::from));
+    let title = cli.title.clone();
 
     tauri::Builder::default()
         .manage(Sessions::new())
+        .manage(ReadyGate::default())
         .manage(ConfigState {
             current: Mutex::new(config),
         })
+        .manage(CliState {
+            args: cli,
+            first_spawn: AtomicBool::new(true),
+        })
         .setup(move |app| {
+            if let Some(t) = &title {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.set_title(t);
+                }
+            }
             if let Some(p) = path.clone() {
                 start_config_watcher(app.handle().clone(), p);
             }
@@ -230,8 +321,10 @@ pub fn run() {
             write_session,
             resize_session,
             close_session,
+            session_ready,
             get_config,
-            quit_app
+            quit_app,
+            get_launch_options
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

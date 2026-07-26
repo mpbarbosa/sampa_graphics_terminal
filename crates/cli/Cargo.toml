@@ -1,0 +1,10 @@
+[package]
+name = "sampa-cli"
+version = "0.1.0"
+edition = "2021"
+description = "Command-line argument parsing for the Sampa terminal (DESIGN.md §12.2)."
+license = "MIT"
+
+# Headless and dependency-free (std only), like the other core crates, so the
+# argv contract is unit-testable without the GUI toolchain.
+[dependencies]
