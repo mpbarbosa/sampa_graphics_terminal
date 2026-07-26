@@ -195,7 +195,13 @@ function refreshChrome(): void {
   appEl.classList.toggle("single-tab", tabs.length <= 1);
 }
 
-async function createTab(): Promise<void> {
+interface ExitPayload {
+  code: number;
+  success: boolean;
+  detail: string;
+}
+
+async function createTab(opts: { hold?: boolean; title?: string } = {}): Promise<void> {
   const pane = document.createElement("div");
   pane.className = "term-pane";
   contentEl.append(pane);
@@ -215,7 +221,20 @@ async function createTab(): Promise<void> {
   unlisten.push(
     await listen<string>(`pty://output/${id}`, (e) => term.write(b64ToBytes(e.payload))),
   );
-  unlisten.push(await listen(`pty://exit/${id}`, () => closeTabById(id)));
+  // On exit, close the tab — unless --hold, which keeps it open showing the status.
+  unlisten.push(
+    await listen<ExitPayload>(`pty://exit/${id}`, (e) => {
+      if (opts.hold) {
+        const { code, success, detail } = e.payload;
+        const color = success ? "32" : "31"; // green / red
+        term.write(
+          `\r\n\x1b[${color}m[${detail || `exited (code ${code})`} — Ctrl+Shift+W to close]\x1b[0m\r\n`,
+        );
+      } else {
+        closeTabById(id);
+      }
+    }),
+  );
 
   term.onData((data) =>
     void invoke("write_session", { session: id, data: bytesToB64(encoder.encode(data)) }),
@@ -223,6 +242,10 @@ async function createTab(): Promise<void> {
   term.onBell(() => {
     if (currentCfg.bell.visual) flash(pane);
   });
+
+  // Listeners are attached — release the backend's output pump (avoids losing the
+  // output of a fast `-e` command that exits before we're listening).
+  await invoke("session_ready", { session: id });
 
   // Tab bar entry (inserted before the trailing "+" button).
   const tabEl = document.createElement("div");
@@ -240,10 +263,16 @@ async function createTab(): Promise<void> {
 
   const tab: Tab = { id, term, fit, search, pane, tabEl, titleEl, unlisten };
 
-  term.onTitleChange((t) => {
-    titleEl.textContent = t || "shell";
-    tabEl.title = t;
-  });
+  if (opts.title) {
+    // An explicit --title wins; don't let the shell's OSC title override it.
+    titleEl.textContent = opts.title;
+    tabEl.title = opts.title;
+  } else {
+    term.onTitleChange((t) => {
+      titleEl.textContent = t || "shell";
+      tabEl.title = t;
+    });
+  }
   tabEl.addEventListener("mousedown", (e) => {
     if (e.target === closeEl) return;
     activate(tabs.indexOf(tab));
@@ -475,5 +504,11 @@ window.addEventListener("beforeunload", () => {
   for (const t of tabs) void invoke("close_session", { session: t.id });
 });
 
-// First tab.
-await createTab();
+// First tab — honors CLI launch options (--hold, --title). New tabs use defaults.
+interface LaunchOptions {
+  hold: boolean;
+  title: string | null;
+  exec: boolean;
+}
+const launch = await invoke<LaunchOptions>("get_launch_options");
+await createTab({ hold: launch.hold, title: launch.title ?? undefined });

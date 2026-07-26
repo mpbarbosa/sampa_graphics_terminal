@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name={{name}}
+GenericName=Terminal
+Comment={{comment}}
+Exec={{exec}} %F
+Icon={{icon}}
+Terminal=false
+Categories=System;TerminalEmulator;
+Keywords=shell;prompt;command;cmd;terminal;console;
+StartupNotify=true
+# NOTE: verify against `xprop WM_CLASS` on the installed build; the bundle binary
+# is "sampa" so the class is expected to be "Sampa".
+StartupWMClass=Sampa

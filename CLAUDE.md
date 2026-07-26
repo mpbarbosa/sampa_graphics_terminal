@@ -20,6 +20,7 @@ cargo run --manifest-path crates/pty-core/Cargo.toml --example echo
 # Headless core crates (fast; no GUI/system deps needed):
 cargo test  --manifest-path crates/pty-core/Cargo.toml    # PTY layer (session table, exit reaping)
 cargo test  --manifest-path crates/config/Cargo.toml      # config model (defaults, TOML, validation)
+cargo test  --manifest-path crates/cli/Cargo.toml         # argv parser (-e/--working-directory/--hold/…)
 cargo build --manifest-path src-tauri/Cargo.toml          # the Tauri app crate (needs GTK/webkit deps)
 ```
 
@@ -35,6 +36,7 @@ Four layers across two halves:
 
 - **Layer 1 — PTY/process** (`crates/pty-core/`): pure-Rust, **zero GUI dependency** so it builds and tests standalone. Spawns the shell on a PTY via `portable-pty` (which handles the POSIX openpty/setsid/TIOCSCTTY dance, so job control and terminal signals work). Streams output bytes over an `mpsc::Sender` from a dedicated reader thread. This is the durable, long-lived asset. **Keep it free of any Tauri/webview imports.**
 - **Config model** (`crates/config/`, `sampa-config`): another headless, GUI-free crate — serde/TOML `Config` with per-field defaults and XDG path resolution (DESIGN.md §11). Same rule as `pty-core`: no Tauri/webview imports.
+- **CLI parser** (`crates/cli/`, `sampa-cli`): headless, std-only argv parser for the terminal CLI contract (`-e`, `--working-directory`, `--hold`, `--title`, …; DESIGN.md §12.2). Infallible (unknown flags → warnings, not a crash). CLI overrides apply to the *first* session only. Note the **ready-gate**: `spawn_session` parks a session's output pump until the frontend calls `session_ready`, so a fast `-e` command can't exit before listeners attach and lose its output.
 - **App shell** (`src-tauri/`): the only layer that knows about the webview. Bridges the headless crates to the frontend over Tauri IPC. Owns the `Sessions` table (from `pty-core`) and a `ConfigState`, plus a `notify` file-watcher that emits `config://changed` on config edits. Depends on `pty-core` and `sampa-config` by path.
 - **Layers 3–4 — renderer + input** (`src/main.ts`, `index.html`): xterm.js in the Tauri webview. Deliberately thin — all terminal behavior belongs in the core. Fetches `get_config` on load and maps `Config` onto xterm options; re-applies on the `config://changed` event. Manages **tabs** (one xterm + `SearchAddon` + session per tab, over the shared `Sessions` table), a config-driven keybinding dispatcher (chords matched on physical `KeyboardEvent.code` so they're layout-independent), and the search overlay. UI concerns (tabs, search, keybinds, paste-confirm modal) live here, not in the core.
 

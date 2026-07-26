@@ -67,12 +67,26 @@ tabs) are complete. What's here:
 - [x] **Config model** (`crates/config`, `sampa-config`): TOML at `$XDG_CONFIG_HOME/sampa/config.toml`, per-field defaults, XDG path, unknown-key rejection, validation, documented default on first run (7 unit tests).
 - [x] **Live reload**: a `notify` file-watcher re-applies theme, font, cursor, scrollback, and padding to a running window on save — no restart.
 - [x] **Tabs**: config-driven keybindings (`Ctrl+Shift+T/W/←/→`), OSC-titled tabs, chrome-free single tab, close reaps the child, last-tab-close quits.
-- [x] **Search** (`Ctrl+Shift+F`) with incremental highlight; font zoom; `--config` override; config-driven shell; visual bell.
-- [ ] Linux integration (`.desktop`, `-e`, default-terminal registration) — M3.
+- [x] **Search** (`Ctrl+Shift+F`) with incremental highlight; font zoom; config-driven shell; visual bell.
+- [x] **CLI contract** (M3 Phase 3.1): `-e CMD` / `-- CMD`, `--working-directory`, `--title`, `--hold`, `--login`, `--class`, `--config` — verified live.
+- [x] **Desktop entry** (`packaging/sampa.desktop`) + deb bundle config; binary installs as `sampa`.
+- [ ] Build the AppImage/.deb and register as `x-terminal-emulator`/`xdg-terminal-exec` (M3 Phase 3.3).
 - [ ] Signature features: command palette, live man panel, safe auto-run preview — M4.
 
 Config lives at `$XDG_CONFIG_HOME/sampa/config.toml` (created with documented defaults on
 first run); edit it and changes apply live. Keybindings are in the `[keybindings]` section.
+
+### Command line
+
+```sh
+sampa                                  # open with your $SHELL
+sampa -e htop                          # run a command instead of the shell
+sampa -- ls -la                        # same, `--` form
+sampa --working-directory=/tmp         # start in a directory
+sampa --title "Build" --hold -e make   # titled window that stays open after make exits
+sampa --config ~/other.toml            # use a specific config
+sampa --help
+```
 
 The detailed, phased roadmap (M1 → v1) is in **[docs/ROADMAP.md](docs/ROADMAP.md)**
 (expanded from the milestone skeleton in [docs/DESIGN.md §18](docs/DESIGN.md)).

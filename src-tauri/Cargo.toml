@@ -20,3 +20,4 @@ base64 = "0.22"
 notify = "6"
 pty-core = { path = "../crates/pty-core" }
 sampa-config = { path = "../crates/config" }
+sampa-cli = { path = "../crates/cli" }
