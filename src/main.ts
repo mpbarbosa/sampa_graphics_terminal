@@ -1,13 +1,14 @@
-// Frontend (Layers 3–4): renders the terminal with xterm.js and bridges it to the
-// Rust PTY core over Tauri IPC. Keeping this thin is deliberate — all terminal
-// behavior lives in pty-core so the renderer can be replaced later.
+// Frontend (Layers 3–4): renders terminals with xterm.js and bridges them to the
+// Rust cores over Tauri IPC. Deliberately thin — all terminal/session behavior lives
+// in the headless crates. M2 adds config-driven theming, tabs, search, and keybinds.
 
 import { Terminal, type ITerminalOptions, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { SearchAddon } from "@xterm/addon-search";
 import "@xterm/xterm/css/xterm.css";
 import "./style.css";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 // Mirror of sampa_config::Config (the subset the renderer applies). The core owns
 // parsing/validation/defaults; here we just map it onto xterm.js (DESIGN.md §11).
@@ -18,6 +19,21 @@ interface Config {
   scrollback: { lines: number };
   cursor: { style: "block" | "bar" | "underline"; blink: boolean };
   bell: { visual: boolean; audible: boolean };
+  keybindings: Record<string, string>;
+}
+
+const encoder = new TextEncoder();
+
+function b64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+function bytesToB64(bytes: Uint8Array): string {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
 }
 
 function toTheme(c: Record<string, string>): ITheme {
@@ -45,11 +61,18 @@ function toTheme(c: Record<string, string>): ITheme {
   };
 }
 
+let currentCfg: Config = await invoke<Config>("get_config");
+let fontZoom = 0; // added to the configured size by zoom keybinds; reset to 0
+
+function effectiveFontSize(): number {
+  return Math.max(4, currentCfg.font.size + fontZoom);
+}
+
 function xtermOptions(cfg: Config): ITerminalOptions {
   return {
     allowProposedApi: true,
     fontFamily: cfg.font.family,
-    fontSize: cfg.font.size,
+    fontSize: effectiveFontSize(),
     cursorStyle: cfg.cursor.style,
     cursorBlink: cfg.cursor.blink,
     scrollback: cfg.scrollback.lines,
@@ -57,100 +80,283 @@ function xtermOptions(cfg: Config): ITerminalOptions {
   };
 }
 
-const termEl = document.getElementById("terminal")!;
-
-function applyPadding(cfg: Config): void {
-  termEl.style.padding = `${cfg.window.padding_y}px ${cfg.window.padding_x}px`;
+// ── Keybindings ────────────────────────────────────────────────────────────────
+// Chords are matched on physical key *codes* so they're layout-independent.
+interface Chord {
+  ctrl: boolean;
+  shift: boolean;
+  alt: boolean;
+  meta: boolean;
+  code: string | null;
 }
 
-// Config comes from the core (XDG file, live-reloaded). Build the terminal from it.
-let currentCfg = await invoke<Config>("get_config");
-
-const term = new Terminal(xtermOptions(currentCfg));
-const fit = new FitAddon();
-term.loadAddon(fit);
-term.open(termEl);
-applyPadding(currentCfg);
-fit.fit();
-term.focus();
-
-// Re-apply on live config edits (DESIGN.md §11). xterm reads these option setters
-// immediately; a refit picks up any font-size change.
-function applyConfig(cfg: Config): void {
-  currentCfg = cfg;
-  const o = xtermOptions(cfg);
-  term.options.fontFamily = o.fontFamily;
-  term.options.fontSize = o.fontSize;
-  term.options.cursorStyle = o.cursorStyle;
-  term.options.cursorBlink = o.cursorBlink;
-  term.options.scrollback = o.scrollback;
-  term.options.theme = o.theme;
-  applyPadding(cfg);
-  syncSize();
+function tokenToCode(tok: string): string | null {
+  if (/^[A-Za-z]$/.test(tok)) return "Key" + tok.toUpperCase();
+  if (/^[0-9]$/.test(tok)) return "Digit" + tok;
+  const named: Record<string, string> = {
+    Right: "ArrowRight",
+    Left: "ArrowLeft",
+    Up: "ArrowUp",
+    Down: "ArrowDown",
+    Tab: "Tab",
+    Enter: "Enter",
+    Space: "Space",
+    Equal: "Equal",
+    Plus: "Equal",
+    Minus: "Minus",
+    Backspace: "Backspace",
+  };
+  return named[tok] ?? null;
 }
-void listen<Config>("config://changed", (e) => applyConfig(e.payload));
+
+function parseChord(s: string): Chord {
+  const parts = s.split("+").map((p) => p.trim());
+  const chord: Chord = { ctrl: false, shift: false, alt: false, meta: false, code: null };
+  for (const p of parts) {
+    const lower = p.toLowerCase();
+    if (lower === "ctrl" || lower === "control") chord.ctrl = true;
+    else if (lower === "shift") chord.shift = true;
+    else if (lower === "alt") chord.alt = true;
+    else if (lower === "meta" || lower === "super" || lower === "cmd") chord.meta = true;
+    else chord.code = tokenToCode(p);
+  }
+  return chord;
+}
+
+function chordMatches(c: Chord, e: KeyboardEvent): boolean {
+  return (
+    c.code !== null &&
+    e.code === c.code &&
+    e.ctrlKey === c.ctrl &&
+    e.shiftKey === c.shift &&
+    e.altKey === c.alt &&
+    e.metaKey === c.meta
+  );
+}
+
+// ── Tabs ─────────────────────────────────────────────────────────────────────
+interface Tab {
+  id: number; // session id
+  term: Terminal;
+  fit: FitAddon;
+  search: SearchAddon;
+  pane: HTMLElement;
+  tabEl: HTMLElement;
+  titleEl: HTMLElement;
+  unlisten: UnlistenFn[];
+}
+
+const appEl = document.getElementById("app")!;
+const tabbarEl = document.getElementById("tabbar")!;
+const contentEl = document.getElementById("content")!;
+
+const tabs: Tab[] = [];
+let active = -1;
+
+function activeTab(): Tab | undefined {
+  return tabs[active];
+}
+
+const newTabBtn = document.createElement("button");
+newTabBtn.className = "tab-new";
+newTabBtn.textContent = "+";
+newTabBtn.title = "New tab";
+newTabBtn.addEventListener("click", () => void createTab());
+tabbarEl.append(newTabBtn);
+
+function flash(el: HTMLElement): void {
+  el.classList.add("bell-flash");
+  setTimeout(() => el.classList.remove("bell-flash"), 100);
+}
+
+function fitAndReport(t: Tab): void {
+  t.fit.fit();
+  void invoke("resize_session", { session: t.id, cols: t.term.cols, rows: t.term.rows });
+}
+
+function activate(i: number): void {
+  if (i < 0 || i >= tabs.length) return;
+  active = i;
+  tabs.forEach((t, idx) => {
+    t.pane.hidden = idx !== i;
+    t.tabEl.classList.toggle("active", idx === i);
+  });
+  const t = tabs[i];
+  fitAndReport(t);
+  t.term.focus();
+}
+
+function switchTab(delta: number): void {
+  if (tabs.length > 1) activate((active + delta + tabs.length) % tabs.length);
+}
+
+function refreshChrome(): void {
+  // Hide the tab bar entirely when there's a single tab (chrome-free like M1).
+  appEl.classList.toggle("single-tab", tabs.length <= 1);
+}
+
+async function createTab(): Promise<void> {
+  const pane = document.createElement("div");
+  pane.className = "term-pane";
+  contentEl.append(pane);
+
+  const term = new Terminal(xtermOptions(currentCfg));
+  const fit = new FitAddon();
+  const search = new SearchAddon();
+  term.loadAddon(fit);
+  term.loadAddon(search);
+  term.open(pane);
+  pane.style.padding = `${currentCfg.window.padding_y}px ${currentCfg.window.padding_x}px`;
+  fit.fit();
+
+  const id = await invoke<number>("spawn_session", { cols: term.cols, rows: term.rows });
+
+  const unlisten: UnlistenFn[] = [];
+  unlisten.push(
+    await listen<string>(`pty://output/${id}`, (e) => term.write(b64ToBytes(e.payload))),
+  );
+  unlisten.push(await listen(`pty://exit/${id}`, () => closeTabById(id)));
+
+  term.onData((data) =>
+    void invoke("write_session", { session: id, data: bytesToB64(encoder.encode(data)) }),
+  );
+  term.onBell(() => {
+    if (currentCfg.bell.visual) flash(pane);
+  });
+
+  // Tab bar entry (inserted before the trailing "+" button).
+  const tabEl = document.createElement("div");
+  tabEl.className = "tab";
+  tabEl.setAttribute("role", "tab");
+  const titleEl = document.createElement("span");
+  titleEl.className = "tab-title";
+  titleEl.textContent = "shell";
+  const closeEl = document.createElement("button");
+  closeEl.className = "tab-close";
+  closeEl.textContent = "✕";
+  closeEl.title = "Close tab";
+  tabEl.append(titleEl, closeEl);
+  tabbarEl.insertBefore(tabEl, newTabBtn);
+
+  const tab: Tab = { id, term, fit, search, pane, tabEl, titleEl, unlisten };
+
+  term.onTitleChange((t) => {
+    titleEl.textContent = t || "shell";
+    tabEl.title = t;
+  });
+  tabEl.addEventListener("mousedown", (e) => {
+    if (e.target === closeEl) return;
+    activate(tabs.indexOf(tab));
+  });
+  closeEl.addEventListener("click", (e) => {
+    e.stopPropagation();
+    closeTab(tabs.indexOf(tab));
+  });
+
+  tabs.push(tab);
+  refreshChrome();
+  activate(tabs.length - 1);
+}
+
+function closeTab(i: number): void {
+  const t = tabs[i];
+  if (!t) return;
+  t.unlisten.forEach((u) => u());
+  void invoke("close_session", { session: t.id });
+  t.term.dispose();
+  t.pane.remove();
+  t.tabEl.remove();
+  tabs.splice(i, 1);
+
+  if (tabs.length === 0) {
+    // Last tab closed → quit, like a normal terminal.
+    void invoke("quit_app");
+    return;
+  }
+  refreshChrome();
+  activate(Math.min(i, tabs.length - 1));
+}
+
+function closeTabById(id: number): void {
+  const i = tabs.findIndex((t) => t.id === id);
+  if (i >= 0) closeTab(i);
+}
+
+// ── Config (live reload) ─────────────────────────────────────────────────────
+function applyToAllTabs(): void {
+  for (const t of tabs) {
+    t.term.options.fontFamily = currentCfg.font.family;
+    t.term.options.fontSize = effectiveFontSize();
+    t.term.options.cursorStyle = currentCfg.cursor.style;
+    t.term.options.cursorBlink = currentCfg.cursor.blink;
+    t.term.options.scrollback = currentCfg.scrollback.lines;
+    t.term.options.theme = toTheme(currentCfg.colors);
+    t.pane.style.padding = `${currentCfg.window.padding_y}px ${currentCfg.window.padding_x}px`;
+  }
+  const t = activeTab();
+  if (t) fitAndReport(t);
+}
+
+void listen<Config>("config://changed", (e) => {
+  currentCfg = e.payload;
+  rebuildBindings();
+  applyToAllTabs();
+});
 void listen<string>("config://error", (e) =>
   console.warn("[sampa] config error:", e.payload),
 );
 
-// Visual bell: briefly flash the surface when the shell rings BEL (config-gated).
-term.onBell(() => {
-  if (!currentCfg.bell.visual) return;
-  termEl.classList.add("bell-flash");
-  setTimeout(() => termEl.classList.remove("bell-flash"), 100);
+function zoom(delta: number | null): void {
+  fontZoom = delta === null ? 0 : fontZoom + delta;
+  applyToAllTabs();
+}
+
+// ── Search ───────────────────────────────────────────────────────────────────
+const searchEl = document.getElementById("search")!;
+const searchInput = document.getElementById("search-input") as HTMLInputElement;
+
+function runSearch(forward: boolean): void {
+  const t = activeTab();
+  const q = searchInput.value;
+  if (!t || !q) return;
+  if (forward) t.search.findNext(q);
+  else t.search.findPrevious(q);
+}
+function openSearch(): void {
+  searchEl.hidden = false;
+  searchInput.select();
+  searchInput.focus();
+}
+function closeSearch(): void {
+  searchEl.hidden = true;
+  activeTab()?.term.focus();
+}
+searchInput.addEventListener("input", () => {
+  const t = activeTab();
+  if (t && searchInput.value) t.search.findNext(searchInput.value, { incremental: true });
 });
-
-const encoder = new TextEncoder();
-
-// PTY output arrives base64-encoded (raw bytes, possibly partial UTF-8); decode to
-// a Uint8Array and let xterm.js reassemble multi-byte/escape sequences.
-function b64ToBytes(b64: string): Uint8Array {
-  const bin = atob(b64);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-
-// Input goes the other way: encode to raw bytes then base64 so control sequences
-// and non-UTF-8 key encodings survive the JS↔Rust boundary intact (DESIGN.md §8.1).
-function bytesToB64(bytes: Uint8Array): string {
-  let bin = "";
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  return btoa(bin);
-}
-
-const session = await invoke<number>("spawn_session", {
-  cols: term.cols,
-  rows: term.rows,
+searchInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    runSearch(!e.shiftKey);
+  } else if (e.key === "Escape") {
+    e.preventDefault();
+    closeSearch();
+  }
 });
+document.getElementById("search-next")!.addEventListener("click", () => runSearch(true));
+document.getElementById("search-prev")!.addEventListener("click", () => runSearch(false));
+document.getElementById("search-close")!.addEventListener("click", closeSearch);
 
-function sendInput(data: string): void {
-  void invoke("write_session", { session, data: bytesToB64(encoder.encode(data)) });
+// ── Copy / paste ─────────────────────────────────────────────────────────────
+function doCopy(): void {
+  const sel = activeTab()?.term.getSelection();
+  if (sel) void navigator.clipboard.writeText(sel);
 }
-
-await listen<string>(`pty://output/${session}`, (e) =>
-  term.write(b64ToBytes(e.payload)),
-);
-
-interface ExitPayload {
-  code: number;
-  success: boolean;
-  detail: string;
-}
-await listen<ExitPayload>(`pty://exit/${session}`, (e) => {
-  const { code, success, detail } = e.payload;
-  const color = success ? "32" : "31"; // green / red
-  term.write(`\r\n\x1b[${color}m[${detail || `process exited (code ${code})`}]\x1b[0m\r\n`);
-});
-
-// Keystrokes / bracketed-paste bytes from xterm -> shell. xterm wraps pastes in the
-// ESC[200~ … ESC[201~ markers itself when the app enables mode 2004.
-term.onData(sendInput);
 
 // A promise-based confirmation modal rendered inside the webview. We do NOT use
 // window.confirm(): in the Tauri WebKitGTK webview it silently returns true without
-// showing a dialog, so it can't gate anything. An in-DOM overlay also matches the
-// renderer-owns-overlays approach the M4 panels will use.
+// showing a dialog, so it can't gate anything.
 function confirmModal(message: string, okLabel = "Paste"): Promise<boolean> {
   return new Promise((resolve) => {
     const overlay = document.createElement("div");
@@ -170,7 +376,7 @@ function confirmModal(message: string, okLabel = "Paste"): Promise<boolean> {
     const done = (result: boolean) => {
       window.removeEventListener("keydown", onKey, true);
       overlay.remove();
-      term.focus();
+      activeTab()?.term.focus();
       resolve(result);
     };
     const onKey = (e: KeyboardEvent) => {
@@ -194,15 +400,12 @@ function confirmModal(message: string, okLabel = "Paste"): Promise<boolean> {
   });
 }
 
-// Paste-safety (DESIGN.md §8.3, §13). We intercept the DOM `paste` event in the
-// capture phase rather than reading the clipboard ourselves: WebKitGTK fires a
-// native paste on Ctrl-Shift-V / Shift-Insert / middle-click, and xterm's built-in
-// handler would otherwise paste straight through, bypassing confirmation. Reading
-// `clipboardData` here is synchronous and needs no async-clipboard permission.
+// Paste-safety (DESIGN.md §8.3, §13): intercept the native paste event (Ctrl-Shift-V,
+// middle-click, Shift-Insert) in the capture phase and gate multi-line pastes.
 let pasting = false;
 async function handlePaste(text: string): Promise<void> {
-  if (!text || pasting) return;
-  // Confirm multi-line pastes: a stray newline runs a command (paste injection).
+  const t = activeTab();
+  if (!text || pasting || !t) return;
   const lines = text.split("\n").length;
   if (lines > 1) {
     const ok = await confirmModal(
@@ -211,51 +414,66 @@ async function handlePaste(text: string): Promise<void> {
     if (!ok) return;
   }
   pasting = true;
-  // term.paste applies bracketed-paste wrapping and strips the end marker.
-  term.paste(text);
+  t.term.paste(text);
   pasting = false;
 }
-
-termEl.addEventListener(
+contentEl.addEventListener(
   "paste",
   (e: ClipboardEvent) => {
-    // Stop xterm's own paste; we own the gating.
     e.preventDefault();
     e.stopPropagation();
     void handlePaste(e.clipboardData?.getData("text") ?? "");
   },
-  true, // capture: run before xterm's listener on the inner textarea
+  true,
 );
 
-// Copy on the reserved Ctrl-Shift-* namespace so shell keybindings aren't shadowed
-// (DESIGN.md §8.4). Returning false stops xterm from also treating it as input.
-// (Ctrl-Shift-V is handled by the native paste event above, not here.)
-term.attachCustomKeyEventHandler((e): boolean => {
-  if (
-    e.type === "keydown" &&
-    e.ctrlKey &&
-    e.shiftKey &&
-    (e.key?.toLowerCase() === "c" || e.code === "KeyC")
-  ) {
-    const sel = term.getSelection();
-    if (sel) {
-      void navigator.clipboard.writeText(sel);
-      return false;
-    }
-  }
-  return true;
-});
-
-// Keep the PTY grid size in sync with the rendered terminal.
-function syncSize(): void {
-  fit.fit();
-  void invoke("resize_session", { session, cols: term.cols, rows: term.rows });
+// ── Keybinding dispatch ──────────────────────────────────────────────────────
+let bindings: Array<[Chord, () => void]> = [];
+function rebuildBindings(): void {
+  const kb = currentCfg.keybindings;
+  bindings = [
+    [parseChord(kb.new_tab), () => void createTab()],
+    [parseChord(kb.close_tab), () => active >= 0 && closeTab(active)],
+    [parseChord(kb.next_tab), () => switchTab(1)],
+    [parseChord(kb.prev_tab), () => switchTab(-1)],
+    [parseChord(kb.copy), doCopy],
+    [parseChord(kb.search), openSearch],
+    [parseChord(kb.zoom_in), () => zoom(1)],
+    [parseChord(kb.zoom_out), () => zoom(-1)],
+    [parseChord(kb.zoom_reset), () => zoom(null)],
+  ];
 }
-new ResizeObserver(syncSize).observe(document.getElementById("terminal")!);
-window.addEventListener("resize", syncSize);
-requestAnimationFrame(syncSize);
+rebuildBindings();
 
-// Best-effort teardown so the shell is reaped promptly on window/tab close.
-window.addEventListener("beforeunload", () => {
-  void invoke("close_session", { session });
+document.addEventListener(
+  "keydown",
+  (e) => {
+    // Don't hijack chords while typing in the search box (Esc/Enter handled there).
+    if (document.activeElement === searchInput) return;
+    for (const [chord, fn] of bindings) {
+      if (chordMatches(chord, e)) {
+        e.preventDefault();
+        e.stopPropagation();
+        fn();
+        return;
+      }
+    }
+  },
+  true, // capture: run before xterm's key handling
+);
+
+// ── Window lifecycle ─────────────────────────────────────────────────────────
+new ResizeObserver(() => {
+  const t = activeTab();
+  if (t) fitAndReport(t);
+}).observe(contentEl);
+window.addEventListener("resize", () => {
+  const t = activeTab();
+  if (t) fitAndReport(t);
 });
+window.addEventListener("beforeunload", () => {
+  for (const t of tabs) void invoke("close_session", { session: t.id });
+});
+
+// First tab.
+await createTab();

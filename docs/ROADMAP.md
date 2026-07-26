@@ -144,26 +144,29 @@ checklist; a paste-safety test.
 
 ---
 
-## M2 — Comfort 🔨
+## M2 — Comfort ✅
 
 **Goal:** make it pleasant and configurable for daily use. Introduces the
 configuration model (§11) and the first multi-session UI.
 
-> **Implementation status.** Phases 2.1 and 2.2 have landed and been verified live
-> (editing the config file hot-reloaded a light theme, size-20 font, bar cursor, and
-> padding into a running window — no restart):
-> - ✅ New headless `crates/config` (`sampa-config`): serde/TOML `Config` with
->   per-field defaults, XDG path resolution, `deny_unknown_fields` so typos error,
->   light validation, and a shipped documented default (6 unit tests).
-> - ✅ Bridge loads config at startup (writes the default to
->   `$XDG_CONFIG_HOME/sampa/config.toml` on first run), exposes `get_config`, spawns
->   from `shell.*`, and runs a `notify` file-watcher → `config://changed`.
-> - ✅ Frontend builds xterm from config and re-applies theme / font / cursor /
->   scrollback / padding on `config://changed`; config-gated visual bell.
-> - ⬜ **Phase 2.3 (tabs, splits, search) not started** — next M2 increment.
-> - Partial: `keybindings` table and `ligatures` toggle are config fields but not yet
->   wired (ligatures needs the xterm addon; keybindings land with 2.3). OSC 4/10/11
->   dynamic colors are xterm built-ins.
+> **Implementation status — complete; all three phases verified live.**
+> - ✅ **2.1 Config** — headless `crates/config` (`sampa-config`): serde/TOML `Config`
+>   with per-field defaults, XDG path resolution, `deny_unknown_fields` so typos
+>   error, validation, shipped documented default (7 unit tests). Bridge loads at
+>   startup (writes default to `$XDG_CONFIG_HOME/sampa/config.toml` on first run),
+>   `--config` override, `get_config`, `notify` watcher → `config://changed`.
+> - ✅ **2.2 Theming/fonts/cursor** — frontend builds xterm from config and
+>   re-applies theme / font / cursor / scrollback / padding live; config-gated visual
+>   bell. (Verified: a config edit hot-reloaded a light theme + size-20 font + bar
+>   cursor into a running window.)
+> - ✅ **2.3 Tabs + search + keybindings** — config-driven keybinding table
+>   (`Ctrl+Shift+*`, layout-independent code matching); tabs on the M1 session table
+>   (new/close/next/prev, OSC titles, chrome-free single tab, close reaps the child,
+>   last-tab-close quits via `quit_app`); incremental search (xterm search addon)
+>   with a find overlay; font zoom. (Verified live: two tabs, switch, search-highlight,
+>   close-reaps 2→1, quit on last close.)
+> - Deferred: **splits** (roadmap-optional); **ligatures** toggle (config field exists,
+>   needs the xterm ligatures addon). OSC 4/10/11 dynamic colors are xterm built-ins.
 
 ### Phase 2.1 — Configuration model (§11)
 - TOML at `$XDG_CONFIG_HOME/sampa/config.toml` (fallback `~/.config/...`), **live
