@@ -48,8 +48,22 @@ Build a release bundle (AppImage/.deb/…):
 
 ```sh
 npm run tauri icon src-tauri/icons/icon.png   # generate the platform icon set (once)
-npm run tauri build
+npm run tauri build                            # all configured targets
+npm run tauri build -- --bundles deb           # just the .deb
 ```
+
+Install the `.deb` and make Sampa a registered terminal:
+
+```sh
+sudo dpkg -i "src-tauri/target/release/bundle/deb/Sampa Terminal_0.1.0_amd64.deb"
+# postinst runs: update-alternatives --install /usr/bin/x-terminal-emulator … /usr/bin/sampa 50
+sampa                        # the installed command
+x-terminal-emulator -e htop  # launchers that use this will now open Sampa
+```
+
+The `.desktop` entry carries `Categories=…;TerminalEmulator;`, so `xdg-terminal-exec`-aware
+launchers discover it too. **GNOME** removed its default-terminal setting; there GNOME users
+rely on the `xdg-terminal-exec` path or per-app settings (no one-click default).
 
 ### Verify just the PTY core (no GUI needed)
 
@@ -68,9 +82,8 @@ tabs) are complete. What's here:
 - [x] **Live reload**: a `notify` file-watcher re-applies theme, font, cursor, scrollback, and padding to a running window on save — no restart.
 - [x] **Tabs**: config-driven keybindings (`Ctrl+Shift+T/W/←/→`), OSC-titled tabs, chrome-free single tab, close reaps the child, last-tab-close quits.
 - [x] **Search** (`Ctrl+Shift+F`) with incremental highlight; font zoom; config-driven shell; visual bell.
-- [x] **CLI contract** (M3 Phase 3.1): `-e CMD` / `-- CMD`, `--working-directory`, `--title`, `--hold`, `--login`, `--class`, `--config` — verified live.
-- [x] **Desktop entry** (`packaging/sampa.desktop`) + deb bundle config; binary installs as `sampa`.
-- [ ] Build the AppImage/.deb and register as `x-terminal-emulator`/`xdg-terminal-exec` (M3 Phase 3.3).
+- [x] **CLI contract** (M3): `-e CMD` / `-- CMD`, `--working-directory`, `--title`, `--hold`, `--login`, `--class`, `--config` — verified live.
+- [x] **`.deb` packaging** (M3): `sampa` binary + `.desktop` (TerminalEmulator category); `postinst` registers `x-terminal-emulator` via `update-alternatives` — verified with `dpkg-deb`.
 - [ ] Signature features: command palette, live man panel, safe auto-run preview — M4.
 
 Config lives at `$XDG_CONFIG_HOME/sampa/config.toml` (created with documented defaults on

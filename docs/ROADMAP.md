@@ -202,34 +202,41 @@ fall-through test (an unbound chord reaches the shell as bytes).
 
 ---
 
-## M3 — Linux citizen 🔨
+## M3 — Linux citizen ✅
 
 **Goal:** it behaves like *the* terminal — launchers can open it, other apps can run
 commands in it, and it installs cleanly (§12, §16). No signature features yet, but
 after M3 the app is a legitimate daily driver.
 
-> **Implementation status.**
+> **Implementation status — complete.**
 > - ✅ **3.1 CLI contract** — new headless `crates/cli` (`sampa-cli`): infallible argv
 >   parser for `-e`/`--`, `--working-directory`/`-w`, `--title`/`-T`, `--hold`,
 >   `--login`/`-l`, `--class`, `--config`, `-h`/`-V` (8 unit tests). Bridge applies the
 >   overrides to the *first* session only (new tabs open a normal shell), sets the
 >   window title, and exposes `get_launch_options` (hold/title) to the frontend, which
->   keeps a `--hold` tab open on exit. **Verified live** in one launch:
+>   keeps a `--hold` tab open on exit. **Verified live**:
 >   `--hold --title "M3 Test" --working-directory=/tmp -e sh -c "pwd; echo …"` printed
 >   `/tmp` + the echo and held with a green status line; title applied.
 >   - Also fixed a latent **output race** with a ready-gate handshake
 >     (`session_ready`): a fast `-e` command used to exit before the frontend attached
 >     listeners, losing its output. Now the backend parks each session's pump until the
 >     frontend is listening.
->   - `--class` is parsed but the runtime `WM_CLASS` override isn't applied yet (tao
->     limitation); tracked below.
-> - 🔨 **3.2 Desktop entry** — `packaging/sampa.desktop` (TerminalEmulator category,
->   `Exec=… %F`, keywords) wired as the deb `desktopTemplate`; binary renamed to
->   `sampa` via `mainBinaryName`. `x-terminal-emulator`/`xdg-terminal-exec`
->   registration is documented but needs the built `.deb` to exercise.
-> - ⬜ **3.3 Packaging** — bundle config is in place; the actual `npm run tauri build`
->   (AppImage/.deb) hasn't been run (heavy) — next increment. `StartupWMClass` and the
->   installed command name should be verified against the real bundle.
+> - ✅ **3.2 Desktop entry** — `packaging/sampa.desktop` (TerminalEmulator category,
+>   `Exec=sampa %F`, keywords, `StartupWMClass=Sampa`) wired as the deb
+>   `desktopTemplate`; binary renamed to `sampa` via `mainBinaryName`.
+> - ✅ **3.3 Packaging** — `npm run tauri build --bundles deb` produces a 12 MB
+>   self-contained `sampa` release binary (verified: renders standalone, no vite) and a
+>   3.3 MB `.deb`. **Verified via `dpkg-deb`**: payload installs `/usr/bin/sampa`, the
+>   icon, and the desktop entry; embedded `postinst` registers `x-terminal-emulator`
+>   via `update-alternatives` (priority 50) + `update-desktop-database`, and `prerm`
+>   deregisters it. `StartupWMClass=Sampa` confirmed against the running binary's real
+>   `WM_CLASS` (`"sampa", "Sampa"`).
+> - Remaining/known: actually **installing** the `.deb` (`sudo dpkg -i`) to exercise
+>   registration needs root — do it on the target box. **AppImage/rpm** not built here
+>   (`appimagetool`/`rpmbuild` absent; `targets:"all"` covers them where the tools
+>   exist). `--class` runtime `WM_CLASS` override still unimplemented (tao limitation).
+> - **GNOME caveat** (§12.3): post-key-removal there's no one-click default-terminal;
+>   GNOME users rely on the `xdg-terminal-exec` path or per-app settings.
 
 ### Phase 3.1 — The command-line contract (§12.2)
 - `sampa` (default shell), `-e CMD…` and `-- CMD…` (run CMD instead of shell — `-e`
