@@ -20,6 +20,7 @@ interface Config {
   cursor: { style: "block" | "bar" | "underline"; blink: boolean };
   bell: { visual: boolean; audible: boolean };
   keybindings: Record<string, string>;
+  features: { palette: boolean; man: boolean; preview: boolean };
 }
 
 const encoder = new TextEncoder();
@@ -144,6 +145,10 @@ interface Tab {
   tabEl: HTMLElement;
   titleEl: HTMLElement;
   unlisten: UnlistenFn[];
+  // What the user has typed on the current command line, reconstructed from keystrokes
+  // (for the man panel). Reset on Enter/Ctrl-C; autosuggestions never enter it since
+  // they aren't keystrokes.
+  typed: string;
 }
 
 const appEl = document.getElementById("app")!;
@@ -193,6 +198,7 @@ function activate(i: number): void {
   const t = tabs[i];
   fitAndReport(t);
   t.term.focus();
+  void updateMan(); // reflect the newly-active tab's command line
 }
 
 function switchTab(delta: number): void {
@@ -251,9 +257,11 @@ async function createTab(
     }),
   );
 
-  term.onData((data) =>
-    void invoke("write_session", { session: id, data: bytesToB64(encoder.encode(data)) }),
-  );
+  term.onData((data) => {
+    void invoke("write_session", { session: id, data: bytesToB64(encoder.encode(data)) });
+    trackTyped(tab, data);
+    scheduleMan(); // refresh the man panel as the command line changes
+  });
   term.onBell(() => {
     if (currentCfg.bell.visual) flash(pane);
   });
@@ -276,7 +284,7 @@ async function createTab(
   tabEl.append(titleEl, closeEl);
   tabbarEl.insertBefore(tabEl, newTabBtn);
 
-  const tab: Tab = { id, term, fit, search, pane, tabEl, titleEl, unlisten };
+  const tab: Tab = { id, term, fit, search, pane, tabEl, titleEl, unlisten, typed: "" };
 
   if (opts.title) {
     // An explicit --title wins; don't let the shell's OSC title override it.
@@ -345,6 +353,10 @@ void listen<Config>("config://changed", (e) => {
   currentCfg = e.payload;
   rebuildBindings();
   applyToAllTabs();
+  // Re-sync the man feature to config (a runtime Ctrl+Shift+M toggle is transient).
+  manEnabled = currentCfg.features.man;
+  if (manEnabled) void updateMan();
+  else hideMan();
 });
 void listen<string>("config://error", (e) =>
   console.warn("[sampa] config error:", e.payload),
@@ -531,6 +543,99 @@ paletteEl.addEventListener("mousedown", (e) => {
   if (e.target === paletteEl) closePalette(); // click backdrop to dismiss
 });
 
+// ── Live man panel (DESIGN.md §10.2) ─────────────────────────────────────────
+// As you type a command, show `man <cmd>` beside the terminal. Robust because the
+// command boundary comes from the OSC 133 B mark (needs the shell integration hook);
+// gated on the token being a real $PATH command, so it collapses for keywords and
+// unknown words rather than showing a stale page.
+const manPanel = document.getElementById("manpanel")!;
+const manTitle = document.getElementById("man-title")!;
+const manBody = document.getElementById("man-body")!;
+
+let manEnabled = currentCfg.features.man;
+let commandSet: Set<string> | null = null;
+let manCurrent = ""; // command whose page is currently shown
+let manTimer: ReturnType<typeof setTimeout> | undefined;
+
+async function ensureCommandSet(): Promise<Set<string>> {
+  if (!commandSet) commandSet = new Set(await invoke<string[]>("list_commands"));
+  return commandSet;
+}
+
+function refitActive(): void {
+  const t = activeTab();
+  if (t) fitAndReport(t);
+}
+
+function hideMan(): void {
+  if (manPanel.hidden) return;
+  manPanel.hidden = true;
+  manCurrent = "";
+  refitActive();
+}
+
+async function showMan(cmd: string): Promise<void> {
+  if (cmd === manCurrent && !manPanel.hidden) return;
+  const text = await invoke<string | null>("render_man", { cmd });
+  if (!manEnabled) return; // toggled off while awaiting
+  if (text) {
+    manTitle.textContent = `man ${cmd}`;
+    manBody.textContent = text;
+    manBody.scrollTop = 0;
+    manCurrent = cmd;
+    if (manPanel.hidden) {
+      manPanel.hidden = false;
+      refitActive();
+    }
+  } else {
+    hideMan();
+  }
+}
+
+// Reconstruct the current command line from a chunk of keystrokes. This tracks what
+// the user typed (not what the shell renders), so prompts and autosuggestions never
+// interfere. Handles Enter/Ctrl-C (reset) and Backspace; other control sequences
+// (arrows, history) are ignored — a best-effort that's right for typed-in commands.
+function trackTyped(tab: Tab, data: string): void {
+  for (const ch of data) {
+    const code = ch.codePointAt(0)!;
+    if (ch === "\r" || ch === "\n" || code === 0x03) tab.typed = ""; // submit / Ctrl-C
+    else if (code === 0x7f || code === 0x08) tab.typed = tab.typed.slice(0, -1); // backspace
+    else if (code >= 0x20) tab.typed += ch; // printable
+  }
+}
+
+// The first token of what's typed, if it's a real $PATH command.
+function detectCommand(cmds: Set<string>): string | null {
+  const typed = activeTab()?.typed.trimStart() ?? "";
+  const tok = typed.split(/\s+/)[0] ?? "";
+  return tok && cmds.has(tok) ? tok : null;
+}
+
+async function updateMan(): Promise<void> {
+  if (!manEnabled) return;
+  const cmds = await ensureCommandSet();
+  const token = detectCommand(cmds);
+  if (token) void showMan(token);
+  else hideMan();
+}
+
+function scheduleMan(): void {
+  if (!manEnabled) return;
+  clearTimeout(manTimer);
+  manTimer = setTimeout(() => void updateMan(), 300);
+}
+
+function toggleMan(): void {
+  manEnabled = !manEnabled;
+  if (manEnabled) void updateMan();
+  else hideMan();
+}
+document.getElementById("man-close")!.addEventListener("click", () => {
+  manEnabled = false;
+  hideMan();
+});
+
 // ── Copy / paste ─────────────────────────────────────────────────────────────
 function doCopy(): void {
   const sel = activeTab()?.term.getSelection();
@@ -622,6 +727,7 @@ function rebuildBindings(): void {
     [parseChord(kb.copy), doCopy],
     [parseChord(kb.search), openSearch],
     [parseChord(kb.palette), () => void openPalette()],
+    [parseChord(kb.toggle_man), toggleMan],
     [parseChord(kb.zoom_in), () => zoom(1)],
     [parseChord(kb.zoom_out), () => zoom(-1)],
     [parseChord(kb.zoom_reset), () => zoom(null)],

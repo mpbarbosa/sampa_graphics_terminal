@@ -292,7 +292,16 @@ being "another terminal."
 >   at the prompt and **never auto-runs**. **Verified live**: opened, filtered `vim`
 >   (prefix hits first, then subsequence), Enter inserted the command at the prompt
 >   without executing it.
-> - ⬜ **4.2 man panel, 4.3 safe preview** — next increments, built on this substrate.
+> - ✅ **4.2 Live man panel** — new headless `crates/man` (`sampa-man`): validates the
+>   command (`^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$`), runs `man -P cat` via an arg vector
+>   (no shell), and strips nroff overstrike + ANSI to plain text (5 unit tests). Bridge
+>   caches per command (`render_man`). Frontend side panel (config `features.man` /
+>   `Ctrl+Shift+M` toggle): detects the command from the **typed keystrokes** (not the
+>   grid — immune to prompt/autosuggestion redraws), gated on `$PATH` validity, debounced;
+>   shows the page or collapses for keywords/no-man. **Verified live**: typing `grep`
+>   rendered its full man page in the panel; the panel shows/collapses as the command
+>   changes. (`man` smoke-tested: `ls`/`grep` → text, `for`/unknown → none.)
+> - ⬜ **4.3 safe preview** — the last signature feature.
 
 ### Phase 4.0 — Shell integration substrate (do this first)
 - Adopt **OSC 133** semantic-prompt marks and **OSC 7** cwd reporting (§5.6). This

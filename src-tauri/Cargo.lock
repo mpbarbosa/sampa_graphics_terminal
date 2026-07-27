@@ -2620,6 +2620,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "sampa-man"
+version = "0.1.0"
+
+[[package]]
 name = "sampa-palette"
 version = "0.1.0"
 
@@ -2636,6 +2640,7 @@ dependencies = [
  "pty-core",
  "sampa-cli",
  "sampa-config",
+ "sampa-man",
  "sampa-palette",
  "sampa-shellint",
  "serde",
