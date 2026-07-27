@@ -32,7 +32,9 @@
     "linux": {
       "deb": {
         "section": "utils",
-        "desktopTemplate": "../packaging/sampa.desktop"
+        "desktopTemplate": "../packaging/sampa.desktop",
+        "postInstallScript": "../packaging/deb/postinst.sh",
+        "preRemoveScript": "../packaging/deb/prerm.sh"
       }
     }
   }
