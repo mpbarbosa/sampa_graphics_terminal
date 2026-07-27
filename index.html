@@ -15,6 +15,18 @@
         <button id="search-next" title="Next (Enter)">↓</button>
         <button id="search-close" title="Close (Esc)">✕</button>
       </div>
+      <div id="palette" hidden>
+        <div class="palette-box" role="dialog" aria-modal="true">
+          <input
+            id="palette-input"
+            type="text"
+            placeholder="Run a command…"
+            spellcheck="false"
+            autocomplete="off"
+          />
+          <ul id="palette-list" role="listbox"></ul>
+        </div>
+      </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

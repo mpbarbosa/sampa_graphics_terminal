@@ -392,6 +392,145 @@ document.getElementById("search-next")!.addEventListener("click", () => runSearc
 document.getElementById("search-prev")!.addEventListener("click", () => runSearch(false));
 document.getElementById("search-close")!.addEventListener("click", closeSearch);
 
+// ── Command palette (DESIGN.md §10.1) ────────────────────────────────────────
+// Fuzzy over $PATH executables; Enter INSERTS "<cmd> " at the prompt — it never
+// auto-runs. The command list comes from the core (list_commands), cached here.
+const paletteEl = document.getElementById("palette")!;
+const paletteInput = document.getElementById("palette-input") as HTMLInputElement;
+const paletteList = document.getElementById("palette-list")!;
+const PALETTE_MAX = 60;
+
+let allCommands: string[] | null = null;
+let paletteResults: string[] = [];
+let paletteSelected = 0;
+
+// Subsequence fuzzy score (higher is better); null if `q` isn't a subsequence of cmd.
+function fuzzyScore(cmd: string, q: string): number | null {
+  if (!q) return 0;
+  let ci = 0;
+  let score = 0;
+  let prev = -2;
+  for (const ch of q) {
+    const idx = cmd.indexOf(ch, ci);
+    if (idx === -1) return null;
+    score -= idx - ci; // gap penalty
+    if (idx === prev + 1) score += 5; // contiguity bonus
+    if (idx === 0) score += 10; // prefix bonus
+    prev = idx;
+    ci = idx + 1;
+  }
+  return score - cmd.length * 0.1; // mild preference for shorter names
+}
+
+function renderPalette(): void {
+  paletteList.textContent = "";
+  if (paletteResults.length === 0) {
+    const empty = document.createElement("li");
+    empty.id = "palette-empty";
+    empty.textContent = allCommands === null ? "Loading…" : "No matching command";
+    paletteList.append(empty);
+    return;
+  }
+  const q = paletteInput.value.toLowerCase();
+  paletteResults.forEach((cmd, i) => {
+    const li = document.createElement("li");
+    li.setAttribute("role", "option");
+    if (i === paletteSelected) li.classList.add("selected");
+    highlightInto(li, cmd, q);
+    li.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      insertCommand(cmd);
+    });
+    paletteList.append(li);
+  });
+  paletteList.children[paletteSelected]?.scrollIntoView({ block: "nearest" });
+}
+
+// Render `cmd` with the fuzzy-matched characters wrapped in <span class="match">.
+function highlightInto(li: HTMLElement, cmd: string, q: string): void {
+  if (!q) {
+    li.textContent = cmd;
+    return;
+  }
+  const lower = cmd.toLowerCase();
+  let qi = 0;
+  for (let i = 0; i < cmd.length; i++) {
+    const span = document.createElement("span");
+    if (qi < q.length && lower[i] === q[qi]) {
+      span.className = "match";
+      qi++;
+    }
+    span.textContent = cmd[i];
+    li.append(span);
+  }
+}
+
+function filterPalette(): void {
+  const q = paletteInput.value.toLowerCase();
+  const cmds = allCommands ?? [];
+  paletteResults = cmds
+    .map((c) => [c, fuzzyScore(c.toLowerCase(), q)] as const)
+    .filter((x): x is readonly [string, number] => x[1] !== null)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, PALETTE_MAX)
+    .map((x) => x[0]);
+  paletteSelected = 0;
+  renderPalette();
+}
+
+async function openPalette(): Promise<void> {
+  paletteEl.hidden = false;
+  paletteInput.value = "";
+  paletteInput.focus();
+  if (allCommands === null) {
+    renderPalette(); // shows "Loading…"
+    allCommands = await invoke<string[]>("list_commands");
+  }
+  filterPalette();
+}
+function closePalette(): void {
+  paletteEl.hidden = true;
+  activeTab()?.term.focus();
+}
+function insertCommand(cmd: string): void {
+  const t = activeTab();
+  closePalette();
+  if (!t) return;
+  // Write the command + a space to the shell's line editor — no newline, so it is
+  // inserted for the user to edit/run, never auto-executed (DESIGN.md §10.1).
+  void invoke("write_session", {
+    session: t.id,
+    data: bytesToB64(encoder.encode(cmd + " ")),
+  });
+}
+
+paletteInput.addEventListener("input", filterPalette);
+paletteInput.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    if (paletteResults.length) {
+      paletteSelected = (paletteSelected + 1) % paletteResults.length;
+      renderPalette();
+    }
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    if (paletteResults.length) {
+      paletteSelected = (paletteSelected - 1 + paletteResults.length) % paletteResults.length;
+      renderPalette();
+    }
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    const cmd = paletteResults[paletteSelected];
+    if (cmd) insertCommand(cmd);
+  } else if (e.key === "Escape") {
+    e.preventDefault();
+    closePalette();
+  }
+});
+paletteEl.addEventListener("mousedown", (e) => {
+  if (e.target === paletteEl) closePalette(); // click backdrop to dismiss
+});
+
 // ── Copy / paste ─────────────────────────────────────────────────────────────
 function doCopy(): void {
   const sel = activeTab()?.term.getSelection();
@@ -482,6 +621,7 @@ function rebuildBindings(): void {
     [parseChord(kb.prev_tab), () => switchTab(-1)],
     [parseChord(kb.copy), doCopy],
     [parseChord(kb.search), openSearch],
+    [parseChord(kb.palette), () => void openPalette()],
     [parseChord(kb.zoom_in), () => zoom(1)],
     [parseChord(kb.zoom_out), () => zoom(-1)],
     [parseChord(kb.zoom_reset), () => zoom(null)],
@@ -492,8 +632,8 @@ rebuildBindings();
 document.addEventListener(
   "keydown",
   (e) => {
-    // Don't hijack chords while typing in the search box (Esc/Enter handled there).
-    if (document.activeElement === searchInput) return;
+    // Don't hijack chords while typing in an overlay input (they handle their own keys).
+    if (document.activeElement === searchInput || document.activeElement === paletteInput) return;
     for (const [chord, fn] of bindings) {
       if (chordMatches(chord, e)) {
         e.preventDefault();

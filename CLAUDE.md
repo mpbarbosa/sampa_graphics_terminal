@@ -22,6 +22,7 @@ cargo test  --manifest-path crates/pty-core/Cargo.toml    # PTY layer (session t
 cargo test  --manifest-path crates/config/Cargo.toml      # config model (defaults, TOML, validation)
 cargo test  --manifest-path crates/cli/Cargo.toml         # argv parser (-e/--working-directory/--hold/…)
 cargo test  --manifest-path crates/shellint/Cargo.toml    # OSC 7/133 shell-integration scanner
+cargo test  --manifest-path crates/palette/Cargo.toml     # $PATH executable enumeration (command palette)
 cargo build --manifest-path src-tauri/Cargo.toml          # the Tauri app crate (needs GTK/webkit deps)
 ```
 

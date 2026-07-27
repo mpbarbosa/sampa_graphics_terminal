@@ -227,6 +227,7 @@ pub struct Keybindings {
     pub prev_tab: String,
     pub copy: String,
     pub search: String,
+    pub palette: String,
     pub zoom_in: String,
     pub zoom_out: String,
     pub zoom_reset: String,
@@ -241,6 +242,7 @@ impl Default for Keybindings {
             prev_tab: "Ctrl+Shift+Left".into(),
             copy: "Ctrl+Shift+C".into(),
             search: "Ctrl+Shift+F".into(),
+            palette: "Ctrl+Shift+P".into(),
             zoom_in: "Ctrl+Shift+Equal".into(),
             zoom_out: "Ctrl+Shift+Minus".into(),
             zoom_reset: "Ctrl+Shift+0".into(),
@@ -367,6 +369,7 @@ next_tab = "Ctrl+Shift+Right"
 prev_tab = "Ctrl+Shift+Left"
 copy = "Ctrl+Shift+C"
 search = "Ctrl+Shift+F"
+palette = "Ctrl+Shift+P"
 zoom_in = "Ctrl+Shift+Equal"
 zoom_out = "Ctrl+Shift+Minus"
 zoom_reset = "Ctrl+Shift+0"

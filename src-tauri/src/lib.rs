@@ -45,6 +45,11 @@ struct ShellMark {
     exit_code: Option<i32>,
 }
 
+/// Lazily-computed, cached list of `$PATH` executables for the command palette.
+/// `$PATH` is fixed for the app process, so a one-shot scan is enough.
+#[derive(Default)]
+struct CommandCache(Mutex<Option<Vec<String>>>);
+
 /// The live configuration (the watcher keeps its own copy of the path).
 struct ConfigState {
     current: Mutex<Config>,
@@ -264,6 +269,18 @@ fn get_config(config: State<'_, ConfigState>) -> Config {
     config.current.lock().unwrap().clone()
 }
 
+/// Executables on `$PATH`, for the command palette (DESIGN.md §10.1). Computed once
+/// and cached.
+#[tauri::command]
+fn list_commands(cache: State<'_, CommandCache>) -> Vec<String> {
+    let mut guard = cache.0.lock().unwrap();
+    if guard.is_none() {
+        let path = std::env::var("PATH").unwrap_or_default();
+        *guard = Some(sampa_palette::list_executables(&path));
+    }
+    guard.clone().unwrap_or_default()
+}
+
 /// Quit the app (used when the last tab is closed).
 #[tauri::command]
 fn quit_app(app: tauri::AppHandle) {
@@ -376,6 +393,7 @@ pub fn run() {
         .manage(Sessions::new())
         .manage(ReadyGate::default())
         .manage(ShellStates::default())
+        .manage(CommandCache::default())
         .manage(ConfigState {
             current: Mutex::new(config),
         })
@@ -402,6 +420,7 @@ pub fn run() {
             session_ready,
             get_session_cwd,
             get_config,
+            list_commands,
             quit_app,
             get_launch_options
         ])
