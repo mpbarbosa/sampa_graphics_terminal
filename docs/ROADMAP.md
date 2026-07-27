@@ -284,8 +284,15 @@ being "another terminal."
 >   marks (gated on `TERM_PROGRAM=sampa-terminal`). New tabs inherit the active tab's
 >   cwd. **Verified live**: new tab inherited `/tmp` (via `/proc`, no hooks) and
 >   `/usr` (with the zsh hook sourced on real p10k, no breakage).
-> - ⬜ **4.1 palette, 4.2 man panel, 4.3 safe preview** — next increments, built on
->   this substrate.
+> - ✅ **4.1 Command palette** — new headless `crates/palette` (`sampa-palette`):
+>   enumerates `$PATH` executables (execute bit, symlinks followed, deduped, sorted;
+>   4 unit tests). Bridge caches the list (`list_commands`). Frontend palette overlay
+>   (`Ctrl+Shift+P`, from the config `palette` binding): fuzzy filter with ranked
+>   results + highlighted matches, arrow/Enter navigation; Enter **inserts** `"<cmd> "`
+>   at the prompt and **never auto-runs**. **Verified live**: opened, filtered `vim`
+>   (prefix hits first, then subsequence), Enter inserted the command at the prompt
+>   without executing it.
+> - ⬜ **4.2 man panel, 4.3 safe preview** — next increments, built on this substrate.
 
 ### Phase 4.0 — Shell integration substrate (do this first)
 - Adopt **OSC 133** semantic-prompt marks and **OSC 7** cwd reporting (§5.6). This

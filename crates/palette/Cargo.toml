@@ -1,0 +1,10 @@
+[package]
+name = "sampa-palette"
+version = "0.1.0"
+edition = "2021"
+description = "Command-palette data: $PATH executable enumeration for the Sampa terminal (DESIGN.md §10.1)."
+license = "MIT"
+
+# Headless, std-only. Enumerates runnable commands from a PATH string so the palette
+# can offer them; unit-testable against a temp directory.
+[dependencies]

@@ -143,6 +143,73 @@ body {
   background: #2f3549;
 }
 
+/* Command palette (Ctrl+Shift+P). */
+#palette {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+  background: rgba(0, 0, 0, 0.45);
+}
+#palette[hidden] {
+  display: none;
+}
+.palette-box {
+  width: min(560px, 90%);
+  max-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  background: #1a1b26;
+  border: 1px solid #2a2e42;
+  border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+#palette-input {
+  border: none;
+  border-bottom: 1px solid #2a2e42;
+  background: transparent;
+  color: #c0caf5;
+  font: 15px ui-monospace, monospace;
+  padding: 12px 14px;
+  outline: none;
+}
+#palette-list {
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  overflow-y: auto;
+}
+#palette-list li {
+  padding: 6px 10px;
+  border-radius: 6px;
+  color: #a9b1d6;
+  font: 13px ui-monospace, monospace;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#palette-list li.selected {
+  background: #7aa2f7;
+  color: #16161e;
+}
+#palette-list li .match {
+  color: #7dcfff;
+  font-weight: 600;
+}
+#palette-list li.selected .match {
+  color: #16161e;
+}
+#palette-empty {
+  padding: 10px 14px;
+  color: #7a819e;
+  font: 13px ui-sans-serif, system-ui, sans-serif;
+}
+
 /* Visual bell: a brief translucent flash over the whole surface (config-gated). */
 .bell-flash::after {
   content: "";

@@ -85,7 +85,8 @@ tabs) are complete. What's here:
 - [x] **CLI contract** (M3): `-e CMD` / `-- CMD`, `--working-directory`, `--title`, `--hold`, `--login`, `--class`, `--config` — verified live.
 - [x] **`.deb` packaging** (M3): `sampa` binary + `.desktop` (TerminalEmulator category); `postinst` registers `x-terminal-emulator` via `update-alternatives` — verified with `dpkg-deb`.
 - [x] **Shell integration** (M4 Phase 4.0): OSC 7 cwd + OSC 133 semantic-prompt scanning (`crates/shellint`); per-session cwd tracking (OSC 7 else `/proc`), new tabs inherit the active cwd; opt-in `shell-integration/sampa.{zsh,bash}` hooks.
-- [ ] Signature features: command palette, live man panel, safe auto-run preview — M4 (4.1–4.3).
+- [x] **Command palette** (M4 Phase 4.1, `Ctrl+Shift+P`): fuzzy search over `$PATH` executables (`crates/palette`) that **inserts** the command at the prompt — never auto-runs.
+- [ ] Signature features: live man panel, safe auto-run preview — M4 (4.2–4.3).
 
 Config lives at `$XDG_CONFIG_HOME/sampa/config.toml` (created with documented defaults on
 first run); edit it and changes apply live. Keybindings are in the `[keybindings]` section.
