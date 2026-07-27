@@ -402,15 +402,18 @@ throughput hit the targets recorded in CI trend lines.
 rejected, not OOM; hyperlinks require a click and display their destination.
 
 ### Phase 5.3 — Conformance & hardening
-- Run **esctest**; track pass rate and **gate releases on a threshold** for claimed
-  sequences. **vttest** manual smoke.
-- Escape-sequence hardening pass (§13): OSC 52 clipboard **write gate** (reads off by
-  default), title (OSC 0/2) sanitization, safe fixed replies to DECRQSS/DA/color
-  queries.
-- Additional packaging: **.rpm**, and Flatpak *if* the M3 decision went that way.
+- ✅ **Escape-sequence hardening pass (§13):** OSC 52 clipboard **write gate**
+  (`[clipboard] osc52_write = ask|allow|deny`, default `ask` → in-DOM consent modal
+  showing the byte count + sanitized preview; reads always denied), title (OSC 0/2)
+  **sanitization** (C0/DEL stripped, capped at 256 chars). Verified live: a write
+  raises the consent modal, a read request (`?`) is silently denied, a control-laden
+  title never reaches the DOM.
+- ⬜ Run **esctest**; track pass rate and **gate releases on a threshold** for claimed
+  sequences. **vttest** manual smoke. Safe fixed replies to DECRQSS/DA/color queries.
+- ⬜ Additional packaging: **.rpm**, and Flatpak *if* the M3 decision went that way.
 
-**Exit criterion:** esctest meets the agreed threshold; the OSC-52 gate prompts (and
-denies by default) — verified by test; no query sequence echoes attacker-controlled
+**Exit criterion:** esctest meets the agreed threshold; ✅ the OSC-52 gate prompts (and
+denies reads by default) — verified live; no query sequence echoes attacker-controlled
 bytes back to input.
 
 ---
