@@ -267,7 +267,7 @@ terminal alternative, and runs the host shell; the AppImage runs with no install
 
 ---
 
-## M4 — Signature features 🔨
+## M4 — Signature features ✅
 
 **Goal:** the product differentiators (§10) — palette, live man panel, safe preview —
 as **in-process core services** with zero network surface. This is where Sampa stops
@@ -301,7 +301,17 @@ being "another terminal."
 >   shows the page or collapses for keywords/no-man. **Verified live**: typing `grep`
 >   rendered its full man page in the panel; the panel shows/collapses as the command
 >   changes. (`man` smoke-tested: `ls`/`grep` → text, `for`/unknown → none.)
-> - ⬜ **4.3 safe preview** — the last signature feature.
+> - ✅ **4.3 Safe auto-run preview** — new headless `crates/preview` (`sampa-preview`):
+>   the authoritative read-only gate (§13). `classify` (pure) rejects write/side-effect
+>   metacharacters (`; & < > \` $() ${ && || >>`), env assignments, path-qualified
+>   commands, and anything off a small allowlist; per-command rules for git (read-only
+>   subcommands only), `find` (`-exec`/`-delete` rejected), `tail -f`. Then `zsh -n`
+>   syntax check, then execute with cwd = session dir, **stdin closed**, 2 s timeout
+>   (SIGKILL), 64 KB output cap. Bridge `render_preview` (cwd-aware). Frontend bottom
+>   panel (config `features.preview` / `Ctrl+Shift+R`): previews the typed line
+>   (debounced 550 ms), clears on Enter. **7 unit tests including the milestone gate —
+>   a typed `rm`/`mv`/`>`/`find -delete` is filesystem-verified to leave the file
+>   untouched, while `cat` runs.** Live: `ls -la` previewed its real output.
 
 ### Phase 4.0 — Shell integration substrate (do this first)
 - Adopt **OSC 133** semantic-prompt marks and **OSC 7** cwd reporting (§5.6). This

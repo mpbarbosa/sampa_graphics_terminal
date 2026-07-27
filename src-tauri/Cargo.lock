@@ -2628,6 +2628,13 @@ name = "sampa-palette"
 version = "0.1.0"
 
 [[package]]
+name = "sampa-preview"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "sampa-shellint"
 version = "0.1.0"
 
@@ -2642,6 +2649,7 @@ dependencies = [
  "sampa-config",
  "sampa-man",
  "sampa-palette",
+ "sampa-preview",
  "sampa-shellint",
  "serde",
  "serde_json",

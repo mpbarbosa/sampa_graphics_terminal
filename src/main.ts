@@ -199,6 +199,7 @@ function activate(i: number): void {
   fitAndReport(t);
   t.term.focus();
   void updateMan(); // reflect the newly-active tab's command line
+  void updatePreview();
 }
 
 function switchTab(delta: number): void {
@@ -261,6 +262,11 @@ async function createTab(
     void invoke("write_session", { session: id, data: bytesToB64(encoder.encode(data)) });
     trackTyped(tab, data);
     scheduleMan(); // refresh the man panel as the command line changes
+    if (data.includes("\r") || data.includes("\n")) {
+      hidePreview(); // submitted — the real output is in the terminal now
+    } else {
+      schedulePreview();
+    }
   });
   term.onBell(() => {
     if (currentCfg.bell.visual) flash(pane);
@@ -353,10 +359,13 @@ void listen<Config>("config://changed", (e) => {
   currentCfg = e.payload;
   rebuildBindings();
   applyToAllTabs();
-  // Re-sync the man feature to config (a runtime Ctrl+Shift+M toggle is transient).
+  // Re-sync the M4 feature toggles to config (runtime Ctrl+Shift+M/R are transient).
   manEnabled = currentCfg.features.man;
   if (manEnabled) void updateMan();
   else hideMan();
+  previewEnabled = currentCfg.features.preview;
+  if (previewEnabled) void updatePreview();
+  else hidePreview();
 });
 void listen<string>("config://error", (e) =>
   console.warn("[sampa] config error:", e.payload),
@@ -636,6 +645,64 @@ document.getElementById("man-close")!.addEventListener("click", () => {
   hideMan();
 });
 
+// ── Safe auto-run preview (DESIGN.md §10.3) ──────────────────────────────────
+// As you type a syntactically valid, read-only command, run it in a throwaway shell
+// (in the session's cwd) and show the output below the terminal. The gate is
+// authoritative in the core (render_preview); the frontend only displays the result.
+const previewPanel = document.getElementById("preview")!;
+const previewTitle = document.getElementById("preview-title")!;
+const previewBody = document.getElementById("preview-body")!;
+
+let previewEnabled = currentCfg.features.preview;
+let previewTimer: ReturnType<typeof setTimeout> | undefined;
+let previewSeq = 0; // guards against out-of-order async results
+
+function hidePreview(): void {
+  if (previewPanel.hidden) return;
+  previewPanel.hidden = true;
+  refitActive();
+}
+
+async function updatePreview(): Promise<void> {
+  if (!previewEnabled) return;
+  const t = activeTab();
+  const line = t?.typed.trim() ?? "";
+  if (!t || !line) {
+    hidePreview();
+    return;
+  }
+  const seq = ++previewSeq;
+  const output = await invoke<string | null>("render_preview", { session: t.id, line });
+  if (seq !== previewSeq || !previewEnabled) return; // superseded / toggled off
+  if (output !== null) {
+    previewTitle.textContent = `Preview: ${line}`;
+    previewBody.textContent = output || "(no output)";
+    previewBody.scrollTop = 0;
+    if (previewPanel.hidden) {
+      previewPanel.hidden = false;
+      refitActive();
+    }
+  } else {
+    hidePreview();
+  }
+}
+
+function schedulePreview(): void {
+  if (!previewEnabled) return;
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(() => void updatePreview(), 550);
+}
+
+function togglePreview(): void {
+  previewEnabled = !previewEnabled;
+  if (previewEnabled) void updatePreview();
+  else hidePreview();
+}
+document.getElementById("preview-close")!.addEventListener("click", () => {
+  previewEnabled = false;
+  hidePreview();
+});
+
 // ── Copy / paste ─────────────────────────────────────────────────────────────
 function doCopy(): void {
   const sel = activeTab()?.term.getSelection();
@@ -728,6 +795,7 @@ function rebuildBindings(): void {
     [parseChord(kb.search), openSearch],
     [parseChord(kb.palette), () => void openPalette()],
     [parseChord(kb.toggle_man), toggleMan],
+    [parseChord(kb.toggle_preview), togglePreview],
     [parseChord(kb.zoom_in), () => zoom(1)],
     [parseChord(kb.zoom_out), () => zoom(-1)],
     [parseChord(kb.zoom_reset), () => zoom(null)],
