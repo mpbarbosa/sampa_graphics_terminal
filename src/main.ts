@@ -106,12 +106,21 @@ function xtermOptions(cfg: Config): ITerminalOptions {
     cursorBlink: cfg.cursor.blink,
     scrollback: cfg.scrollback.lines,
     theme: toTheme(cfg.colors),
-    // §13: lock the window-ops that report the (application-settable) title back
-    // into the PTY. CSI 20 t / CSI 21 t are a command-injection vector — an app
-    // sets a hostile title, then asks the terminal to report it, and the reply is
-    // injected as keystrokes. xterm has no default impl for these, but we pin them
-    // off so a config/default flip can never open the hole.
-    windowOptions: { getWinTitle: false, getIconTitle: false },
+    // §13: keep title/icon reporting OFF — CSI 20 t / CSI 21 t report the
+    // application-settable title back into the PTY, a command-injection vector.
+    // The geometry window-ops are safe and useful: size *reports* (CSI 14/16/18 t)
+    // only reveal the grid dimensions (like DSR), and grid *resize* (CSI 8 t) is
+    // standard xterm behavior that TUIs and the esctest conformance suite rely on.
+    windowOptions: {
+      getWinTitle: false, // CSI 21 t — denied (injection vector)
+      getIconTitle: false, // CSI 20 t — denied (injection vector)
+      getWinSizePixels: true, // CSI 14 t — report text-area size in pixels
+      getCellSizePixels: true, // CSI 16 t — report cell size in pixels
+      getWinSizeChars: true, // CSI 18 t — report text-area size in chars
+      // CSI 8 t (grid resize) is intentionally left off: xterm.js intercepts it
+      // internally and won't hand it to us to letterbox a fixed grid, so callers
+      // (incl. esctest) must resize the window instead. Size reports still work.
+    },
   };
 }
 
@@ -335,6 +344,40 @@ async function createTab(
     cols: term.cols,
     rows: term.rows,
     cwd: opts.cwd ?? null,
+  });
+
+  // Conformance: DECRQCRA — "request checksum of rectangular area"
+  // (CSI Pid ; Pp ; Pt ; Pl ; Pb ; Pr * y). Reply with a 16-bit sum of the cell
+  // codepoints in the rectangle so screen-reading conformance tooling (esctest)
+  // can verify rendered contents. Empty cells count as space (0x20), matching
+  // xterm; reply is DCS Pid ! ~ XXXX ST. Registered here (not before term.open)
+  // because it needs the session `id` to write the reply.
+  term.parser.registerCsiHandler({ intermediates: "*", final: "y" }, (params) => {
+    const at = (i: number, dflt: number) => {
+      const v = params[i];
+      return typeof v === "number" && v > 0 ? v : dflt;
+    };
+    const pid = typeof params[0] === "number" && params[0] > 0 ? params[0] : 0;
+    const buf = term.buffer.active;
+    const top = at(2, 1);
+    const left = at(3, 1);
+    const bottom = at(4, term.rows);
+    const right = at(5, term.cols);
+    let sum = 0;
+    for (let row = top; row <= bottom; row++) {
+      const line = buf.getLine(buf.baseY + row - 1);
+      if (!line) continue;
+      for (let col = left; col <= right; col++) {
+        const code = line.getCell(col - 1)?.getCode() ?? 0;
+        sum += code === 0 ? 0x20 : code;
+      }
+    }
+    const hex = (sum & 0xffff).toString(16).toUpperCase().padStart(4, "0");
+    void invoke("write_session", {
+      session: id,
+      data: bytesToB64(encoder.encode(`\x1bP${pid}!~${hex}\x1b\\`)),
+    });
+    return true;
   });
 
   const unlisten: UnlistenFn[] = [];
