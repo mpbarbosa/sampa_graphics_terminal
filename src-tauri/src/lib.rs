@@ -50,6 +50,10 @@ struct ShellMark {
 #[derive(Default)]
 struct CommandCache(Mutex<Option<Vec<String>>>);
 
+/// Per-command cache of rendered man pages (`Some(text)` or `None` for no page).
+#[derive(Default)]
+struct ManCache(Mutex<HashMap<String, Option<String>>>);
+
 /// The live configuration (the watcher keeps its own copy of the path).
 struct ConfigState {
     current: Mutex<Config>,
@@ -281,6 +285,18 @@ fn list_commands(cache: State<'_, CommandCache>) -> Vec<String> {
     guard.clone().unwrap_or_default()
 }
 
+/// Rendered, sanitized `man <cmd>` text for the live man panel (DESIGN.md §10.2), or
+/// `None` if `cmd` is invalid or has no page. Cached per command.
+#[tauri::command]
+fn render_man(cache: State<'_, ManCache>, cmd: String) -> Option<String> {
+    if let Some(cached) = cache.0.lock().unwrap().get(&cmd) {
+        return cached.clone();
+    }
+    let rendered = sampa_man::render(&cmd).unwrap_or(None);
+    cache.0.lock().unwrap().insert(cmd, rendered.clone());
+    rendered
+}
+
 /// Quit the app (used when the last tab is closed).
 #[tauri::command]
 fn quit_app(app: tauri::AppHandle) {
@@ -394,6 +410,7 @@ pub fn run() {
         .manage(ReadyGate::default())
         .manage(ShellStates::default())
         .manage(CommandCache::default())
+        .manage(ManCache::default())
         .manage(ConfigState {
             current: Mutex::new(config),
         })
@@ -421,6 +438,7 @@ pub fn run() {
             get_session_cwd,
             get_config,
             list_commands,
+            render_man,
             quit_app,
             get_launch_options
         ])

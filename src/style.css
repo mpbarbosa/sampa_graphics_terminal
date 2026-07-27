@@ -81,10 +81,68 @@ body {
   color: #7a819e;
 }
 
+/* The tab bar sits above a row of [terminal | man panel]. */
+#main {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 #content {
   position: relative;
   flex: 1 1 auto;
+  min-width: 0;
   min-height: 0;
+}
+
+/* Live man panel (Ctrl+Shift+M / config features.man). Command detection reads the
+   typed keystrokes (not the grid), so resizing the terminal here is harmless. */
+#manpanel {
+  flex: 0 0 42%;
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: #1a1b26;
+  border-left: 1px solid #2a2e42;
+}
+#manpanel[hidden] {
+  display: none;
+}
+.man-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-bottom: 1px solid #2a2e42;
+  color: #7dcfff;
+  font: 12px ui-sans-serif, system-ui, sans-serif;
+}
+#man-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#man-close {
+  border: none;
+  background: none;
+  color: #7a819e;
+  cursor: pointer;
+  font-size: 13px;
+}
+#man-close:hover {
+  color: #c0caf5;
+}
+#man-body {
+  margin: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 8px 12px;
+  color: #a9b1d6;
+  font: 12px ui-monospace, monospace;
+  white-space: pre;
+  tab-size: 8;
 }
 
 .term-pane {

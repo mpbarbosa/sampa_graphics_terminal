@@ -1,0 +1,10 @@
+[package]
+name = "sampa-man"
+version = "0.1.0"
+edition = "2021"
+description = "Live man-page rendering for the Sampa terminal (DESIGN.md §10.2)."
+license = "MIT"
+
+# Headless, std-only. Validation and nroff/ANSI sanitizing are pure and unit-tested;
+# `render` shells out to `man -P cat` via an arg vector (no shell).
+[dependencies]
