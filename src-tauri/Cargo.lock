@@ -2620,6 +2620,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "sampa-shellint"
+version = "0.1.0"
+
+[[package]]
 name = "sampa-terminal"
 version = "0.1.0"
 dependencies = [
@@ -2628,6 +2632,7 @@ dependencies = [
  "pty-core",
  "sampa-cli",
  "sampa-config",
+ "sampa-shellint",
  "serde",
  "serde_json",
  "tauri",

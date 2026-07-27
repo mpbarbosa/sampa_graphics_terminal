@@ -267,11 +267,25 @@ terminal alternative, and runs the host shell; the AppImage runs with no install
 
 ---
 
-## M4 — Signature features ⬜
+## M4 — Signature features 🔨
 
 **Goal:** the product differentiators (§10) — palette, live man panel, safe preview —
 as **in-process core services** with zero network surface. This is where Sampa stops
 being "another terminal."
+
+> **Implementation status.**
+> - ✅ **4.0 Shell integration substrate** — new headless `crates/shellint`
+>   (`sampa-shellint`): an incremental `OscScanner` that extracts OSC 7 (cwd,
+>   `file://` + percent-decode) and OSC 133 A/B/C/D (prompt lifecycle + exit code)
+>   from the PTY byte stream, robust to chunk splits (7 unit tests). The bridge feeds
+>   every session's output through it, tracks per-session cwd (OSC 7 → else
+>   `/proc/<pid>/cwd`), exposes `get_session_cwd`, and emits `shell://cwd|mark/<id>`
+>   events for the M4 features. Opt-in `shell-integration/sampa.{zsh,bash}` emit the
+>   marks (gated on `TERM_PROGRAM=sampa-terminal`). New tabs inherit the active tab's
+>   cwd. **Verified live**: new tab inherited `/tmp` (via `/proc`, no hooks) and
+>   `/usr` (with the zsh hook sourced on real p10k, no breakage).
+> - ⬜ **4.1 palette, 4.2 man panel, 4.3 safe preview** — next increments, built on
+>   this substrate.
 
 ### Phase 4.0 — Shell integration substrate (do this first)
 - Adopt **OSC 133** semantic-prompt marks and **OSC 7** cwd reporting (§5.6). This

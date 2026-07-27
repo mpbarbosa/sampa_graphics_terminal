@@ -161,7 +161,16 @@ const newTabBtn = document.createElement("button");
 newTabBtn.className = "tab-new";
 newTabBtn.textContent = "+";
 newTabBtn.title = "New tab";
-newTabBtn.addEventListener("click", () => void createTab());
+newTabBtn.addEventListener("click", () => void newTab());
+
+// New tab inheriting the active tab's cwd (from OSC 7 / /proc).
+async function newTab(): Promise<void> {
+  const t = activeTab();
+  const cwd = t
+    ? ((await invoke<string | null>("get_session_cwd", { session: t.id })) ?? undefined)
+    : undefined;
+  await createTab({ cwd });
+}
 tabbarEl.append(newTabBtn);
 
 function flash(el: HTMLElement): void {
@@ -201,7 +210,9 @@ interface ExitPayload {
   detail: string;
 }
 
-async function createTab(opts: { hold?: boolean; title?: string } = {}): Promise<void> {
+async function createTab(
+  opts: { hold?: boolean; title?: string; cwd?: string } = {},
+): Promise<void> {
   const pane = document.createElement("div");
   pane.className = "term-pane";
   contentEl.append(pane);
@@ -215,7 +226,11 @@ async function createTab(opts: { hold?: boolean; title?: string } = {}): Promise
   pane.style.padding = `${currentCfg.window.padding_y}px ${currentCfg.window.padding_x}px`;
   fit.fit();
 
-  const id = await invoke<number>("spawn_session", { cols: term.cols, rows: term.rows });
+  const id = await invoke<number>("spawn_session", {
+    cols: term.cols,
+    rows: term.rows,
+    cwd: opts.cwd ?? null,
+  });
 
   const unlisten: UnlistenFn[] = [];
   unlisten.push(
@@ -461,7 +476,7 @@ let bindings: Array<[Chord, () => void]> = [];
 function rebuildBindings(): void {
   const kb = currentCfg.keybindings;
   bindings = [
-    [parseChord(kb.new_tab), () => void createTab()],
+    [parseChord(kb.new_tab), () => void newTab()],
     [parseChord(kb.close_tab), () => active >= 0 && closeTab(active)],
     [parseChord(kb.next_tab), () => switchTab(1)],
     [parseChord(kb.prev_tab), () => switchTab(-1)],
