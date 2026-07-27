@@ -106,6 +106,12 @@ function xtermOptions(cfg: Config): ITerminalOptions {
     cursorBlink: cfg.cursor.blink,
     scrollback: cfg.scrollback.lines,
     theme: toTheme(cfg.colors),
+    // §13: lock the window-ops that report the (application-settable) title back
+    // into the PTY. CSI 20 t / CSI 21 t are a command-injection vector — an app
+    // sets a hostile title, then asks the terminal to report it, and the reply is
+    // injected as keystrokes. xterm has no default impl for these, but we pin them
+    // off so a config/default flip can never open the hole.
+    windowOptions: { getWinTitle: false, getIconTitle: false },
   };
 }
 
@@ -294,6 +300,19 @@ async function createTab(
       if (ok) void navigator.clipboard.writeText(text);
     });
     return true;
+  });
+
+  // §13 defense-in-depth: never answer a window/icon *title report* (CSI 20 t /
+  // CSI 21 t). The title is application-settable, so reporting it back echoes
+  // attacker-controlled bytes into stdin — a command-injection vector. Swallow
+  // just those two ops (return true = handled, no reply); every other CSI t
+  // window-op falls through to xterm, where they stay gated off via windowOptions.
+  // DA (CSI c), DSR (CSI n) and DECRQSS (DCS $q) are left to xterm, which answers
+  // with fixed / cursor-derived values only — never attacker input — so apps that
+  // need capability + cursor reports keep working.
+  term.parser.registerCsiHandler({ final: "t" }, (params) => {
+    const op = Array.isArray(params[0]) ? params[0][0] : params[0];
+    return op === 20 || op === 21;
   });
 
   term.open(pane);

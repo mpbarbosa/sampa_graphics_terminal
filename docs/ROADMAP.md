@@ -408,13 +408,20 @@ rejected, not OOM; hyperlinks require a click and display their destination.
   **sanitization** (C0/DEL stripped, capped at 256 chars). Verified live: a write
   raises the consent modal, a read request (`?`) is silently denied, a control-laden
   title never reaches the DOM.
+- ✅ **Query-reply safety (§13):** DA (`CSI c`), DSR (`CSI n`) and DECRQSS (`DCS $q`)
+  keep xterm's fixed / cursor-derived replies (never attacker input), so capability
+  and cursor reports still work. The one echo vector — **title report** (`CSI 20/21 t`),
+  which would report the application-settable title back into stdin — is pinned off in
+  `windowOptions` and swallowed by a defensive `CSI t` handler. Verified live: a hostile
+  title carrying an embedded `CR + echo SAMPA_PWNED`, then a title-report request,
+  leaves a clean prompt — nothing injected or executed.
 - ⬜ Run **esctest**; track pass rate and **gate releases on a threshold** for claimed
-  sequences. **vttest** manual smoke. Safe fixed replies to DECRQSS/DA/color queries.
+  sequences. **vttest** manual smoke.
 - ⬜ Additional packaging: **.rpm**, and Flatpak *if* the M3 decision went that way.
 
 **Exit criterion:** esctest meets the agreed threshold; ✅ the OSC-52 gate prompts (and
-denies reads by default) — verified live; no query sequence echoes attacker-controlled
-bytes back to input.
+denies reads by default) and ✅ no query sequence echoes attacker-controlled bytes back
+to input — both verified live.
 
 ---
 
