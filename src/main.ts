@@ -24,7 +24,19 @@ interface Config {
   bell: { visual: boolean; audible: boolean };
   keybindings: Record<string, string>;
   rendering: { gpu: boolean; images: boolean };
+  clipboard: { osc52_write: "ask" | "allow" | "deny" };
   features: { palette: boolean; man: boolean; preview: boolean };
+}
+
+// Escape-sequence hardening (§13). Terminal output is untrusted: a window/tab title
+// set via OSC 0/2 must not carry control characters into our UI.
+function sanitizeTitle(t: string): string {
+  let out = "";
+  for (const ch of t) {
+    const code = ch.codePointAt(0)!;
+    if (code >= 0x20 && code !== 0x7f) out += ch; // drop C0 controls + DEL
+  }
+  return out.slice(0, 256);
 }
 
 // Open an http(s) link from terminal content: confirm the target (§13), then hand it
@@ -255,6 +267,35 @@ async function createTab(
   term.loadAddon(new WebLinksAddon((_event, uri) => void openLink(uri)));
   term.options.linkHandler = { activate: (_event, uri) => void openLink(uri) };
 
+  // OSC 52 clipboard hardening (§13): a *write* is gated by config (ask/allow/deny);
+  // a *read* query (`?`) is always denied — never answered — so terminal output can't
+  // exfiltrate the clipboard. Returning true marks the sequence handled.
+  term.parser.registerOscHandler(52, (data) => {
+    const semi = data.indexOf(";");
+    const payload = semi >= 0 ? data.slice(semi + 1) : "";
+    const policy = currentCfg.clipboard.osc52_write;
+    if (payload === "?" || policy === "deny") return true;
+    let text = "";
+    try {
+      text = atob(payload);
+    } catch {
+      return true; // malformed base64
+    }
+    if (!text || text.length > 100_000) return true; // empty / oversized
+    if (policy === "allow") {
+      void navigator.clipboard.writeText(text);
+      return true;
+    }
+    const preview = sanitizeTitle(text.length > 60 ? text.slice(0, 60) + "…" : text);
+    void confirmModal(
+      `An application wants to copy ${text.length} byte(s) to your clipboard:\n\n${preview}`,
+      "Copy",
+    ).then((ok) => {
+      if (ok) void navigator.clipboard.writeText(text);
+    });
+    return true;
+  });
+
   term.open(pane);
   pane.style.padding = `${currentCfg.window.padding_y}px ${currentCfg.window.padding_x}px`;
 
@@ -336,8 +377,9 @@ async function createTab(
     tabEl.title = opts.title;
   } else {
     term.onTitleChange((t) => {
-      titleEl.textContent = t || "shell";
-      tabEl.title = t;
+      const clean = sanitizeTitle(t);
+      titleEl.textContent = clean || "shell";
+      tabEl.title = clean;
     });
   }
   tabEl.addEventListener("mousedown", (e) => {

@@ -25,6 +25,7 @@ pub struct Config {
     pub bell: Bell,
     pub keybindings: Keybindings,
     pub rendering: Rendering,
+    pub clipboard: Clipboard,
     /// Signature-feature toggles (wired up in M4); present now so configs are
     /// forward-compatible.
     pub features: Features,
@@ -42,8 +43,35 @@ impl Default for Config {
             bell: Bell::default(),
             keybindings: Keybindings::default(),
             rendering: Rendering::default(),
+            clipboard: Clipboard::default(),
             features: Features::default(),
         }
+    }
+}
+
+/// How to handle an app's OSC 52 request to *write* the system clipboard (§13). Reads
+/// are always denied (never answered) so terminal content can't exfiltrate the
+/// clipboard.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Osc52Policy {
+    /// Prompt for confirmation, showing what would be copied (default).
+    Ask,
+    /// Copy without prompting.
+    Allow,
+    /// Ignore the request.
+    Deny,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Clipboard {
+    pub osc52_write: Osc52Policy,
+}
+
+impl Default for Clipboard {
+    fn default() -> Self {
+        Self { osc52_write: Osc52Policy::Ask }
     }
 }
 
@@ -400,6 +428,9 @@ zoom_reset = "Ctrl+Shift+0"
 [rendering]
 gpu = true          # WebGL renderer (falls back to canvas if unavailable)
 images = true       # inline sixel / iTerm image display
+
+[clipboard]
+osc52_write = "ask" # app clipboard writes (OSC 52): ask | allow | deny. Reads are always denied.
 
 [features]          # signature features, wired up in M4
 palette = false
