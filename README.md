@@ -89,6 +89,7 @@ command palette, live man panel, safe preview). What's here:
 - [x] **Command palette** (M4 Phase 4.1, `Ctrl+Shift+P`): fuzzy search over `$PATH` executables (`crates/palette`) that **inserts** the command at the prompt — never auto-runs.
 - [x] **Live man panel** (M4 Phase 4.2, `Ctrl+Shift+M` / `features.man`): as you type a command, shows its `man` page in a side panel (`crates/man`; `man -P cat`, no shell, sanitized); collapses for keywords/no-man.
 - [x] **Safe auto-run preview** (M4 Phase 4.3, `Ctrl+Shift+R` / `features.preview`): as you type a **read-only** command, previews its output in a bottom panel — via a core allowlist gate (`crates/preview`) that runs it in the cwd with a timeout, closed stdin, and output cap. A typed `rm`/`>`/`find -delete` is filesystem-verified to never run.
+- [x] **Rendering & graphics** (M5): WebGL GPU renderer (canvas fallback), inline **sixel/iTerm images** (`[rendering] images`), and clickable **hyperlinks** (plain + OSC 8) opened only after a confirmation showing the target.
 
 Config lives at `$XDG_CONFIG_HOME/sampa/config.toml` (created with documented defaults on
 first run); edit it and changes apply live. Keybindings are in the `[keybindings]` section.

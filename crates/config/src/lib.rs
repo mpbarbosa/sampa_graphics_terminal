@@ -24,6 +24,7 @@ pub struct Config {
     pub cursor: Cursor,
     pub bell: Bell,
     pub keybindings: Keybindings,
+    pub rendering: Rendering,
     /// Signature-feature toggles (wired up in M4); present now so configs are
     /// forward-compatible.
     pub features: Features,
@@ -40,8 +41,24 @@ impl Default for Config {
             cursor: Cursor::default(),
             bell: Bell::default(),
             keybindings: Keybindings::default(),
+            rendering: Rendering::default(),
             features: Features::default(),
         }
+    }
+}
+
+/// Rendering options (M5). `gpu` selects the WebGL renderer (falls back to canvas if
+/// the GL context is lost); `images` enables inline sixel/iTerm image display.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Rendering {
+    pub gpu: bool,
+    pub images: bool,
+}
+
+impl Default for Rendering {
+    fn default() -> Self {
+        Self { gpu: true, images: true }
     }
 }
 
@@ -379,6 +396,10 @@ toggle_preview = "Ctrl+Shift+R"
 zoom_in = "Ctrl+Shift+Equal"
 zoom_out = "Ctrl+Shift+Minus"
 zoom_reset = "Ctrl+Shift+0"
+
+[rendering]
+gpu = true          # WebGL renderer (falls back to canvas if unavailable)
+images = true       # inline sixel / iTerm image display
 
 [features]          # signature features, wired up in M4
 palette = false
