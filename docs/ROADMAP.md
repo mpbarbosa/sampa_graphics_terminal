@@ -367,9 +367,22 @@ preview allowlist test suite (writes refused, reads allowed, clears on Enter).
 
 ---
 
-## M5 — Polish & scale ⬜
+## M5 — Polish & scale 🔨
 
 **Goal:** performance, graphics, and conformance to a shippable bar (§14, §17).
+
+> **Implementation status.**
+> - ✅ **Rendering + graphics + links** (5.1 WebGL, plus the graphics/links of 5.2) —
+>   config `[rendering]` section (`gpu`, `images`, both default true). Per tab: the
+>   **WebGL renderer** (`@xterm/addon-webgl`) with a canvas fallback on context loss;
+>   **inline sixel/iTerm images** (`@xterm/addon-image`) capped for the §13 OOM guard;
+>   **clickable hyperlinks** — plain URLs (`@xterm/addon-web-links`) and OSC 8 — routed
+>   through a confirm-before-open modal that shows the target, with a core `open_url`
+>   command that re-validates the scheme (http/https only). **Verified live**: a sixel
+>   rose rendered inline, a URL underlined and clicking it showed the confirm dialog,
+>   no WebGL crash.
+> - ⬜ **Remaining**: perf pass + CI benchmarks (5.1 throughput/latency), esctest
+>   conformance + escape-sequence hardening (5.3), Flatpak/rpm packaging.
 
 ### Phase 5.1 — Rendering performance (§14)
 - **WebGL addon** for glyph throughput; off-thread PTY read → batched parse → **one

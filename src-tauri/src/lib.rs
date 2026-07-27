@@ -328,6 +328,23 @@ fn quit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+/// Open an `http(s)` hyperlink from terminal content (M5, §13). The frontend only
+/// calls this on an explicit user click after confirming the target; we additionally
+/// validate the scheme here so terminal output can never launch arbitrary handlers
+/// (e.g. `file://`, `javascript:`).
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    let lower = url.to_ascii_lowercase();
+    if !(lower.starts_with("http://") || lower.starts_with("https://")) {
+        return Err("only http/https links may be opened".into());
+    }
+    std::process::Command::new("xdg-open")
+        .arg(&url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
 /// Launch-time options from the command line (`--hold`, `--title`).
 #[tauri::command]
 fn get_launch_options(cli: State<'_, CliState>) -> LaunchOptions {
@@ -465,6 +482,7 @@ pub fn run() {
             list_commands,
             render_man,
             render_preview,
+            open_url,
             quit_app,
             get_launch_options
         ])

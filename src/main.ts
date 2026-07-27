@@ -5,6 +5,9 @@
 import { Terminal, type ITerminalOptions, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
+import { WebglAddon } from "@xterm/addon-webgl";
+import { WebLinksAddon } from "@xterm/addon-web-links";
+import { ImageAddon } from "@xterm/addon-image";
 import "@xterm/xterm/css/xterm.css";
 import "./style.css";
 import { invoke } from "@tauri-apps/api/core";
@@ -20,7 +23,20 @@ interface Config {
   cursor: { style: "block" | "bar" | "underline"; blink: boolean };
   bell: { visual: boolean; audible: boolean };
   keybindings: Record<string, string>;
+  rendering: { gpu: boolean; images: boolean };
   features: { palette: boolean; man: boolean; preview: boolean };
+}
+
+// Open an http(s) link from terminal content: confirm the target (§13), then hand it
+// to the core, which re-validates the scheme. Explicit click only — never auto-open.
+async function openLink(uri: string): Promise<void> {
+  const ok = await confirmModal(`Open this link?\n${uri}`, "Open");
+  if (!ok) return;
+  try {
+    await invoke("open_url", { url: uri });
+  } catch (e) {
+    console.warn("[sampa] open_url:", e);
+  }
 }
 
 const encoder = new TextEncoder();
@@ -229,8 +245,30 @@ async function createTab(
   const search = new SearchAddon();
   term.loadAddon(fit);
   term.loadAddon(search);
+
+  // Inline images (sixel / iTerm), capped so a hostile stream can't OOM us (§13).
+  if (currentCfg.rendering.images) {
+    term.loadAddon(new ImageAddon({ sixelSupport: true, storageLimit: 50, pixelLimit: 16_000_000 }));
+  }
+  // Clickable URLs: plain-text (web-links) and OSC 8. Both route through openLink,
+  // which confirms and never auto-opens.
+  term.loadAddon(new WebLinksAddon((_event, uri) => void openLink(uri)));
+  term.options.linkHandler = { activate: (_event, uri) => void openLink(uri) };
+
   term.open(pane);
   pane.style.padding = `${currentCfg.window.padding_y}px ${currentCfg.window.padding_x}px`;
+
+  // GPU renderer (after open, needs the canvas). Fall back to the DOM/canvas renderer
+  // if the WebGL context is lost or unavailable.
+  if (currentCfg.rendering.gpu) {
+    try {
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => webgl.dispose());
+      term.loadAddon(webgl);
+    } catch (e) {
+      console.warn("[sampa] WebGL unavailable, using canvas renderer:", e);
+    }
+  }
   fit.fit();
 
   const id = await invoke<number>("spawn_session", {
