@@ -74,8 +74,9 @@ cargo run --manifest-path crates/pty-core/Cargo.toml --example echo
 
 ## Status
 
-**M2 — comfort (done).** M1 (the "real terminal" contract) and M2 (configuration +
-tabs) are complete. What's here:
+**M4 — signature features (done).** M0–M4 are complete: the real-terminal contract,
+configuration + tabs, Linux integration, and the signature features (shell integration,
+command palette, live man panel, safe preview). What's here:
 
 - [x] **M1**: core session table, byte-safe I/O, `{ code, success, detail }` exit events, scrollback, bracketed paste + multi-line paste confirmation, clipboard — verified live against zsh/vim/job-control.
 - [x] **Config model** (`crates/config`, `sampa-config`): TOML at `$XDG_CONFIG_HOME/sampa/config.toml`, per-field defaults, XDG path, unknown-key rejection, validation, documented default on first run (7 unit tests).
@@ -87,7 +88,7 @@ tabs) are complete. What's here:
 - [x] **Shell integration** (M4 Phase 4.0): OSC 7 cwd + OSC 133 semantic-prompt scanning (`crates/shellint`); per-session cwd tracking (OSC 7 else `/proc`), new tabs inherit the active cwd; opt-in `shell-integration/sampa.{zsh,bash}` hooks.
 - [x] **Command palette** (M4 Phase 4.1, `Ctrl+Shift+P`): fuzzy search over `$PATH` executables (`crates/palette`) that **inserts** the command at the prompt — never auto-runs.
 - [x] **Live man panel** (M4 Phase 4.2, `Ctrl+Shift+M` / `features.man`): as you type a command, shows its `man` page in a side panel (`crates/man`; `man -P cat`, no shell, sanitized); collapses for keywords/no-man.
-- [ ] Signature feature: safe auto-run preview — M4 (4.3).
+- [x] **Safe auto-run preview** (M4 Phase 4.3, `Ctrl+Shift+R` / `features.preview`): as you type a **read-only** command, previews its output in a bottom panel — via a core allowlist gate (`crates/preview`) that runs it in the cwd with a timeout, closed stdin, and output cap. A typed `rm`/`>`/`find -delete` is filesystem-verified to never run.
 
 Config lives at `$XDG_CONFIG_HOME/sampa/config.toml` (created with documented defaults on
 first run); edit it and changes apply live. Keybindings are in the `[keybindings]` section.

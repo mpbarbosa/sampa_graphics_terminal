@@ -229,6 +229,7 @@ pub struct Keybindings {
     pub search: String,
     pub palette: String,
     pub toggle_man: String,
+    pub toggle_preview: String,
     pub zoom_in: String,
     pub zoom_out: String,
     pub zoom_reset: String,
@@ -245,6 +246,7 @@ impl Default for Keybindings {
             search: "Ctrl+Shift+F".into(),
             palette: "Ctrl+Shift+P".into(),
             toggle_man: "Ctrl+Shift+M".into(),
+            toggle_preview: "Ctrl+Shift+R".into(),
             zoom_in: "Ctrl+Shift+Equal".into(),
             zoom_out: "Ctrl+Shift+Minus".into(),
             zoom_reset: "Ctrl+Shift+0".into(),
@@ -373,6 +375,7 @@ copy = "Ctrl+Shift+C"
 search = "Ctrl+Shift+F"
 palette = "Ctrl+Shift+P"
 toggle_man = "Ctrl+Shift+M"
+toggle_preview = "Ctrl+Shift+R"
 zoom_in = "Ctrl+Shift+Equal"
 zoom_out = "Ctrl+Shift+Minus"
 zoom_reset = "Ctrl+Shift+0"

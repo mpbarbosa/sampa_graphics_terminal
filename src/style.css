@@ -145,6 +145,49 @@ body {
   tab-size: 8;
 }
 
+/* Safe auto-run preview: a panel below the terminal (Ctrl+Shift+R / features.preview). */
+#preview {
+  flex: 0 0 auto;
+  max-height: 35%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: #16181f;
+  border-top: 1px solid #2a2e42;
+}
+#preview[hidden] {
+  display: none;
+}
+.preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 10px;
+  border-bottom: 1px solid #2a2e42;
+  color: #9ece6a;
+  font: 11px ui-sans-serif, system-ui, sans-serif;
+}
+#preview-close {
+  border: none;
+  background: none;
+  color: #7a819e;
+  cursor: pointer;
+  font-size: 13px;
+}
+#preview-close:hover {
+  color: #c0caf5;
+}
+#preview-body {
+  margin: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 6px 12px;
+  color: #a9b1d6;
+  font: 12px ui-monospace, monospace;
+  white-space: pre-wrap;
+  tab-size: 8;
+}
+
 .term-pane {
   position: absolute;
   inset: 0;

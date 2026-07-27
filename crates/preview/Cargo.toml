@@ -1,0 +1,12 @@
+[package]
+name = "sampa-preview"
+version = "0.1.0"
+edition = "2021"
+description = "Safe auto-run preview: read-only command gate + sandboxed execution (DESIGN.md §10.3)."
+license = "MIT"
+
+# The security gate (`classify`) is pure and heavily unit-tested — it is the
+# authoritative boundary (§13), never bypassable from the frontend. `run_preview`
+# shells out only after the gate passes, with a timeout, output cap, and closed stdin.
+[dependencies]
+libc = "0.2"

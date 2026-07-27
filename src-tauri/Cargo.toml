@@ -24,3 +24,4 @@ sampa-cli = { path = "../crates/cli" }
 sampa-shellint = { path = "../crates/shellint" }
 sampa-palette = { path = "../crates/palette" }
 sampa-man = { path = "../crates/man" }
+sampa-preview = { path = "../crates/preview" }

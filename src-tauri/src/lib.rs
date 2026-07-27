@@ -297,6 +297,31 @@ fn render_man(cache: State<'_, ManCache>, cmd: String) -> Option<String> {
     rendered
 }
 
+/// Safe auto-run preview (DESIGN.md §10.3, §13): gate `line` and, if it is a valid
+/// read-only command, run it in the session's cwd and return the output. Returns
+/// `None` when the gate rejects it or it's incomplete — the frontend just hides the
+/// panel then. The gate is authoritative here; nothing the frontend sends can bypass
+/// it. Not cached (output depends on the live filesystem).
+#[tauri::command]
+fn render_preview(
+    sessions: State<'_, Sessions>,
+    shell_states: State<'_, ShellStates>,
+    session: u32,
+    line: String,
+) -> Option<String> {
+    let cwd = shell_states
+        .0
+        .lock()
+        .unwrap()
+        .get(&session)
+        .and_then(|s| s.cwd.clone())
+        .or_else(|| sessions.pid(session).and_then(proc_cwd));
+    match sampa_preview::run_preview(&line, cwd.as_deref()) {
+        sampa_preview::Preview::Ran(output) => Some(output),
+        sampa_preview::Preview::NotRun(_) => None,
+    }
+}
+
 /// Quit the app (used when the last tab is closed).
 #[tauri::command]
 fn quit_app(app: tauri::AppHandle) {
@@ -439,6 +464,7 @@ pub fn run() {
             get_config,
             list_commands,
             render_man,
+            render_preview,
             quit_app,
             get_launch_options
         ])
