@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use base64::Engine;
 use notify::{EventKind, RecursiveMode, Watcher};
@@ -24,6 +24,26 @@ use tauri::{Emitter, Manager, State};
 use pty_core::{PtyEvent, Sessions, SpawnConfig};
 use sampa_cli::CliArgs;
 use sampa_config::Config;
+use sampa_shellint::{OscScanner, ShellEvent};
+
+/// Per-session shell-integration state (DESIGN.md §5.6). Populated from OSC 7/133 in
+/// the output pump; queried by the cwd-aware features. Shared behind an `Arc` so the
+/// pump threads and the command handlers see the same map.
+#[derive(Default, Clone)]
+struct ShellStates(Arc<Mutex<HashMap<u32, ShellState>>>);
+
+#[derive(Default)]
+struct ShellState {
+    /// Working directory reported via OSC 7 (authoritative when present).
+    cwd: Option<String>,
+}
+
+/// An OSC 133 prompt/command mark, forwarded to the frontend for the M4 features.
+#[derive(Clone, Serialize)]
+struct ShellMark {
+    kind: &'static str,
+    exit_code: Option<i32>,
+}
 
 /// The live configuration (the watcher keeps its own copy of the path).
 struct ConfigState {
@@ -72,8 +92,10 @@ fn spawn_session(
     config: State<'_, ConfigState>,
     cli: State<'_, CliState>,
     ready: State<'_, ReadyGate>,
+    shell_states: State<'_, ShellStates>,
     cols: u16,
     rows: u16,
+    cwd: Option<String>,
 ) -> Result<u32, String> {
     let (tx, rx) = std::sync::mpsc::channel::<PtyEvent>();
 
@@ -99,9 +121,12 @@ fn spawn_session(
         }
     };
 
+    // cwd precedence: CLI --working-directory (first session) > frontend hint (a new
+    // tab inheriting the active tab's cwd) > $HOME.
     let cwd = apply_cli
         .then(|| cli.args.working_directory.clone())
         .flatten()
+        .or(cwd)
         .or_else(|| std::env::var("HOME").ok());
 
     let cfg = SpawnConfig {
@@ -118,17 +143,35 @@ fn spawn_session(
     let (ready_tx, ready_rx) = std::sync::mpsc::channel::<()>();
     ready.map.lock().unwrap().insert(id, ready_tx);
 
+    let states = shell_states.0.clone();
+
     // Pump this session's event stream to the webview. Output bytes may be partial
-    // UTF-8 (mid escape sequence), so we base64 them and let xterm.js reassemble.
+    // UTF-8 (mid escape sequence), so we base64 them and let xterm.js reassemble. We
+    // also scan the stream for OSC 7/133 shell-integration signals (DESIGN.md §5.6).
     std::thread::spawn(move || {
         // Wait until the frontend is listening (or the gate is dropped).
         let _ = ready_rx.recv();
         let b64 = base64::engine::general_purpose::STANDARD;
+        let mut scanner = OscScanner::new();
         while let Ok(event) = rx.recv() {
             let ok = match event {
-                PtyEvent::Output(bytes) => app
-                    .emit(&format!("pty://output/{id}"), b64.encode(&bytes))
-                    .is_ok(),
+                PtyEvent::Output(bytes) => {
+                    for ev in scanner.feed(&bytes) {
+                        match ev {
+                            ShellEvent::Cwd(path) => {
+                                states.lock().unwrap().entry(id).or_default().cwd =
+                                    Some(path.clone());
+                                let _ = app.emit(&format!("shell://cwd/{id}"), path);
+                            }
+                            ShellEvent::PromptStart => emit_mark(&app, id, "prompt-start", None),
+                            ShellEvent::CommandStart => emit_mark(&app, id, "command-start", None),
+                            ShellEvent::OutputStart => emit_mark(&app, id, "output-start", None),
+                            ShellEvent::CommandEnd(code) => emit_mark(&app, id, "command-end", code),
+                        }
+                    }
+                    app.emit(&format!("pty://output/{id}"), b64.encode(&bytes))
+                        .is_ok()
+                }
                 PtyEvent::Exit(info) => {
                     let _ = app.emit(
                         &format!("pty://exit/{id}"),
@@ -145,9 +188,22 @@ fn spawn_session(
                 break; // webview gone
             }
         }
+        states.lock().unwrap().remove(&id);
     });
 
     Ok(id)
+}
+
+fn emit_mark(app: &tauri::AppHandle, id: u32, kind: &'static str, exit_code: Option<i32>) {
+    let _ = app.emit(&format!("shell://mark/{id}"), ShellMark { kind, exit_code });
+}
+
+/// The shell's cwd for `pid`, from `/proc/<pid>/cwd` (Linux fallback when OSC 7 is
+/// unavailable, e.g. the shell integration isn't sourced).
+fn proc_cwd(pid: u32) -> Option<String> {
+    std::fs::read_link(format!("/proc/{pid}/cwd"))
+        .ok()
+        .and_then(|p| p.to_str().map(String::from))
 }
 
 /// Forward typed/pasted input to a session's shell. `data` is base64 so raw bytes
@@ -179,6 +235,27 @@ fn session_ready(ready: State<'_, ReadyGate>, session: u32) {
     if let Some(tx) = ready.map.lock().unwrap().remove(&session) {
         let _ = tx.send(());
     }
+}
+
+/// The session's working directory: OSC 7 if the shell reported it, else
+/// `/proc/<pid>/cwd`. Used to open new tabs in the same directory and (in M4) to run
+/// the man/preview services in the session's cwd.
+#[tauri::command]
+fn get_session_cwd(
+    sessions: State<'_, Sessions>,
+    shell_states: State<'_, ShellStates>,
+    session: u32,
+) -> Option<String> {
+    if let Some(cwd) = shell_states
+        .0
+        .lock()
+        .unwrap()
+        .get(&session)
+        .and_then(|s| s.cwd.clone())
+    {
+        return Some(cwd);
+    }
+    sessions.pid(session).and_then(proc_cwd)
 }
 
 /// The current configuration, for the frontend to apply on startup.
@@ -298,6 +375,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(Sessions::new())
         .manage(ReadyGate::default())
+        .manage(ShellStates::default())
         .manage(ConfigState {
             current: Mutex::new(config),
         })
@@ -322,6 +400,7 @@ pub fn run() {
             resize_session,
             close_session,
             session_ready,
+            get_session_cwd,
             get_config,
             quit_app,
             get_launch_options

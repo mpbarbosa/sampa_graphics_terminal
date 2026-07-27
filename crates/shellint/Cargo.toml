@@ -1,0 +1,11 @@
+[package]
+name = "sampa-shellint"
+version = "0.1.0"
+edition = "2021"
+description = "Shell-integration OSC scanner (OSC 7 cwd, OSC 133 semantic prompt) for the Sampa terminal (DESIGN.md §5.6, §10.2)."
+license = "MIT"
+
+# Headless, std-only, like the other core crates: an incremental byte scanner that
+# extracts semantic shell-integration signals from the PTY output stream, unit-tested
+# without any GUI.
+[dependencies]

@@ -21,3 +21,4 @@ notify = "6"
 pty-core = { path = "../crates/pty-core" }
 sampa-config = { path = "../crates/config" }
 sampa-cli = { path = "../crates/cli" }
+sampa-shellint = { path = "../crates/shellint" }
