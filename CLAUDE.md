@@ -27,7 +27,7 @@ cargo test  --manifest-path crates/man/Cargo.toml         # man validate/sanitiz
 cargo test  --manifest-path crates/preview/Cargo.toml     # preview allowlist gate (incl. filesystem rm-safety test)
 cargo build --manifest-path src-tauri/Cargo.toml          # the Tauri app crate (needs GTK/webkit deps)
 
-# Throughput benchmarks (Phase 5.1, §14) — headless, print MB/s + fail on a lenient floor:
+# Throughput benchmarks (Phase 5.1, §14) — headless, print MiB/s + fail on a lenient floor:
 cargo run --release --manifest-path crates/shellint/Cargo.toml --example bench_scan   # OSC-scan MiB/s
 cargo run --release --manifest-path crates/pty-core/Cargo.toml --example bench_pump   # PTY pump + flood
 ```

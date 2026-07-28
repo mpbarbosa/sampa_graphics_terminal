@@ -2,8 +2,9 @@
 //!
 //! Spawns a shell that floods the PTY with a fixed volume and drains the event
 //! channel to EOF, measuring how fast the reader thread + channel move bytes and
-//! confirming the pump terminates cleanly under a flood (no hang, no unbounded
-//! growth — we hold at most one chunk at a time).
+//! confirming the pump terminates cleanly under a flood (no hang). Note the
+//! channel is an unbounded `mpsc`, so this measures throughput and liveness, not
+//! a memory bound — a slow consumer could still let chunks queue up.
 //!
 //! Run: `cargo run --release --manifest-path crates/pty-core/Cargo.toml --example bench_pump`
 //! Prints `pump: <N> MiB in <T> ms = <X> MiB/s`. Exits non-zero on a stall or if

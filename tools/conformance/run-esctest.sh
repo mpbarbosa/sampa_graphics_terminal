@@ -60,7 +60,7 @@ rm -f "$LOG"
 export GDK_BACKEND=x11 WEBKIT_DISABLE_COMPOSITING_MODE=1 \
        WEBKIT_DISABLE_DMABUF_RENDERER=1 LIBGL_ALWAYS_SOFTWARE=1
 
-for w in $(xdotool search --name "esctestrun" 2>/dev/null); do xdotool windowkill "$w" 2>/dev/null; done
+for w in $(xdotool search --name '^esctestrun$' 2>/dev/null); do xdotool windowkill "$w" 2>/dev/null; done
 
 # --window-id 0 makes esctest skip xwininfo (no real X window id needed).
 # --xterm-checksum 334 selects the raw (non-negated) checksum convention Sampa
@@ -78,7 +78,7 @@ for _ in $(seq 1 900); do
   grep -q "passed," "$LOG" 2>/dev/null && break
 done
 
-for w in $(xdotool search --name "esctestrun" 2>/dev/null); do xdotool windowkill "$w" 2>/dev/null; done
+for w in $(xdotool search --name '^esctestrun$' 2>/dev/null); do xdotool windowkill "$w" 2>/dev/null; done
 
 SUMMARY="$(grep -E "\*\*\*.*passed" "$LOG" 2>/dev/null | tail -1)"
 if [ -z "$SUMMARY" ]; then
