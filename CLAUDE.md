@@ -26,7 +26,16 @@ cargo test  --manifest-path crates/palette/Cargo.toml     # $PATH executable enu
 cargo test  --manifest-path crates/man/Cargo.toml         # man validate/sanitize (live man panel)
 cargo test  --manifest-path crates/preview/Cargo.toml     # preview allowlist gate (incl. filesystem rm-safety test)
 cargo build --manifest-path src-tauri/Cargo.toml          # the Tauri app crate (needs GTK/webkit deps)
+
+# Throughput benchmarks (Phase 5.1, §14) — headless, print MB/s + fail on a lenient floor:
+cargo run --release --manifest-path crates/shellint/Cargo.toml --example bench_scan   # OSC-scan MiB/s
+cargo run --release --manifest-path crates/pty-core/Cargo.toml --example bench_pump   # PTY pump + flood
 ```
+
+CI (`.github/workflows/ci.yml`) runs the headless crate tests, the frontend build, the
+Tauri app build (installs GTK/webkit deps), and the two benchmarks — the bench numbers
+are printed for trend tracking. GUI-dependent latency is a documented manual check (a
+headless runner has no display).
 
 The headless crates (`pty-core`, `config`) have unit tests and build without the GUI toolchain — use them as the fast inner loop. `npm run dev` (vite alone) has no Tauri IPC backend — always use `npm run tauri dev` to exercise the real app.
 
