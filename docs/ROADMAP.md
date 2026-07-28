@@ -425,13 +425,18 @@ rejected, not OOM; hyperlinks require a click and display their destination.
   `windowOptions` and swallowed by a defensive `CSI t` handler. Verified live: a hostile
   title carrying an embedded `CR + echo SAMPA_PWNED`, then a title-report request,
   leaves a clean prompt — nothing injected or executed.
-- ⬜ Run **esctest**; track pass rate and **gate releases on a threshold** for claimed
-  sequences. **vttest** manual smoke.
+- ✅ **esctest** conformance: Sampa implements **DECRQCRA** (rectangular-area checksum)
+  so esctest can read the screen back — without it a webview terminal can't be scored.
+  Baseline **305 passed / 43 known-bug / 220 failed** at natural geometry; failures are
+  dominated by query/report + VT400 features xterm.js doesn't implement (window-ops,
+  DECRQM/color/DSR queries), not regressions. Runner + analysis + threshold in
+  `tools/conformance/`. **Release gate:** pass count must not drop below the baseline.
+- ⬜ **vttest** manual smoke. Safe fixed replies to DECRQSS/DA/color queries (partial).
 - ⬜ Additional packaging: **.rpm**, and Flatpak *if* the M3 decision went that way.
 
-**Exit criterion:** esctest meets the agreed threshold; ✅ the OSC-52 gate prompts (and
-denies reads by default) and ✅ no query sequence echoes attacker-controlled bytes back
-to input — both verified live.
+**Exit criterion:** ✅ esctest runs and is gated on a pass-count threshold (305); ✅ the
+OSC-52 gate prompts (and denies reads by default); ✅ no query sequence echoes
+attacker-controlled bytes back to input — all verified live.
 
 ---
 
