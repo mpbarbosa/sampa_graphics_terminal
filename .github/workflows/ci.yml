@@ -19,6 +19,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Install zsh
+        # The preview crate shells out to `zsh -n` (syntax check) and `zsh` (sandboxed
+        # run); its filesystem rm-safety test needs a real zsh present.
+        run: sudo apt-get update && sudo apt-get install -y zsh
       - name: Test headless crates
         run: |
           set -e
@@ -61,6 +65,7 @@ jobs:
   benchmarks:
     name: Throughput benchmarks
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
