@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Fast inner loop: the headless core crates build and test without any GUI deps.
+  core-tests:
+    name: Core crate tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Test headless crates
+        run: |
+          set -e
+          for crate in pty-core config cli shellint palette man preview; do
+            echo "::group::cargo test $crate"
+            cargo test --manifest-path "crates/$crate/Cargo.toml"
+            echo "::endgroup::"
+          done
+
+  # Frontend typecheck + production bundle (no Tauri backend needed).
+  frontend:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+
+  # The Tauri app crate needs the Linux GUI stack; build it to catch bridge breaks.
+  app-build:
+    name: Tauri app build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Linux GUI deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev libxdo-dev
+      - run: cargo build --manifest-path src-tauri/Cargo.toml
+
+  # Phase 5.1 (§14): throughput benchmarks. Numbers are printed for trend tracking;
+  # each bench also fails on a lenient floor to catch catastrophic regressions.
+  benchmarks:
+    name: Throughput benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: OSC-scan throughput
+        run: cargo run --release --manifest-path crates/shellint/Cargo.toml --example bench_scan
+      - name: PTY pump + flood stability
+        run: cargo run --release --manifest-path crates/pty-core/Cargo.toml --example bench_pump
