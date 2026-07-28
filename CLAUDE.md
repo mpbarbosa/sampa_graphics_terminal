@@ -11,7 +11,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```sh
 npm install                    # install frontend deps (first time)
 npm run tauri dev              # run the native app with a live shell (main dev loop)
-npm run tauri build            # release bundle (AppImage/.deb); run `npm run tauri icon src-tauri/icons/icon.png` once first
+npm run tauri build            # release bundle (deb/rpm/AppImage); run `npm run tauri icon src-tauri/icons/icon.png` once first
+npm run tauri build -- --bundles rpm  # just the .rpm (native Tauri builder, no rpmbuild needed)
 npm run build                  # frontend typecheck + vite build (tsc --noEmit && vite build)
 
 # Verify Layer 1 (PTY core) with no GUI — fastest feedback loop for core changes:
@@ -40,6 +41,8 @@ headless runner has no display).
 The headless crates (`pty-core`, `config`) have unit tests and build without the GUI toolchain — use them as the fast inner loop. `npm run dev` (vite alone) has no Tauri IPC backend — always use `npm run tauri dev` to exercise the real app.
 
 Building the Tauri app requires the Linux system deps in `README.md` (webkit2gtk, GTK dev libs, etc.).
+
+**Packaging** lives in `packaging/` + `bundle.linux.{deb,rpm}` in `src-tauri/tauri.conf.json`. The **`.deb`** postinst registers Sampa as `x-terminal-emulator` via `update-alternatives` — a **Debian-only** mechanism. The **`.rpm`** scriptlets (`packaging/rpm/`) deliberately do **not** do this (there's no `/usr/bin/x-terminal-emulator` on Fedora); they only refresh the desktop database, and discovery is via the `TerminalEmulator` desktop-entry category. Don't copy the deb's alternatives call into the rpm. **Flatpak is declined for v1** (host-shell vs. sandbox — see `docs/adr/0001-flatpak-distribution.md`).
 
 ## Architecture
 

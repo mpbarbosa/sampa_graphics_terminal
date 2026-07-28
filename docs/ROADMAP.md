@@ -432,7 +432,15 @@ rejected, not OOM; hyperlinks require a click and display their destination.
   DECRQM/color/DSR queries), not regressions. Runner + analysis + threshold in
   `tools/conformance/`. **Release gate:** pass count must not drop below the baseline.
 - ⬜ **vttest** manual smoke. Safe fixed replies to DECRQSS/DA/color queries (partial).
-- ⬜ Additional packaging: **.rpm**, and Flatpak *if* the M3 decision went that way.
+- ✅ **`.rpm` packaging**: `bundle.linux.rpm` in `tauri.conf.json` with a Fedora-appropriate
+  desktop entry and scriptlets (`packaging/rpm/` — refresh the desktop database; **no**
+  Debian `x-terminal-emulator` alternatives). Built + verified: the 3.4 MB rpm ships
+  `/usr/bin/sampa` + the `.desktop` + icon, embeds the post-install/remove scriptlets,
+  and its `Requires` are SONAME-based (`libwebkit2gtk-4.1.so.0`, `libgtk-3.so.0`) so they
+  resolve on Fedora.
+- ✅ **Flatpak — declined for v1** ([ADR 0001](adr/0001-flatpak-distribution.md)): a
+  host-shell terminal fights Flatpak's sandbox (needs `flatpak-spawn --host`, breaks
+  terminal registration). Ship native packages; revisit post-v1.
 
 **Exit criterion:** ✅ esctest runs and is gated on a pass-count threshold (305); ✅ the
 OSC-52 gate prompts (and denies reads by default); ✅ no query sequence echoes
