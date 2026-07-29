@@ -761,6 +761,7 @@ open-ended.
 - **xdg-terminal-exec** — emerging freedesktop default-terminal spec.
 - Prior art to read: **Alacritty**, **kitty**, **foot**, **wezterm**, **Hyper**
   (Electron + xterm.js proof), **Rio**.
+- CIA reading-room document — <https://www.cia.gov/readingroom/docs/CIA-RDP73T00325R000100110001-0.pdf>
 
 ---
 
