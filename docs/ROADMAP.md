@@ -431,7 +431,11 @@ rejected, not OOM; hyperlinks require a click and display their destination.
   dominated by query/report + VT400 features xterm.js doesn't implement (window-ops,
   DECRQM/color/DSR queries), not regressions. Runner + analysis + threshold in
   `tools/conformance/`. **Release gate:** pass count must not drop below the baseline.
-- ⬜ **vttest** manual smoke. Safe fixed replies to DECRQSS/DA/color queries (partial).
+- ✅ **vttest** manual smoke (`tools/conformance/vttest.md`): verified by screenshot
+  against the release binary — cursor addressing (unbroken border + centered E-frame),
+  interactive menu navigation, and the VT100 character sets incl. **DEC Special Graphics
+  line-drawing** and British NRC (`£`) all render without corruption. Safe fixed replies
+  to DECRQSS/DA/color queries remain partial (see esctest failure tail).
 - ✅ **`.rpm` packaging**: `bundle.linux.rpm` in `tauri.conf.json` with a Fedora-appropriate
   desktop entry and scriptlets (`packaging/rpm/` — refresh the desktop database; **no**
   Debian `x-terminal-emulator` alternatives). Built + verified: the 3.4 MB rpm ships
