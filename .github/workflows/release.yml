@@ -1,0 +1,48 @@
+name: Release
+
+# Cut a release by pushing a version tag:
+#   npm version 0.1.0 --no-git-tag-version   # (optional) bump tauri.conf.json/package.json
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# This builds the .deb, .rpm, and AppImage and attaches them to a **draft**
+# GitHub release, so a human reviews and publishes it (nothing goes public
+# automatically). Delete the tag + draft to redo.
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    name: Build & draft release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release and upload assets
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install Linux GUI deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev libxdo-dev
+      - run: npm ci
+      - name: Generate the platform icon set from icons/icon.png
+        run: npm run tauri icon src-tauri/icons/icon.png
+      - name: Build bundles + draft the release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # tauri-action runs `tauri build` (which runs beforeBuildCommand:
+          # `npm run build`), then uploads bundle.targets = all (deb, rpm, AppImage).
+          tagName: ${{ github.ref_name }}
+          releaseName: "Sampa Terminal ${{ github.ref_name }}"
+          releaseBody: "Download the `.deb`, `.rpm`, or AppImage below. See the README for install + terminal-registration notes."
+          releaseDraft: true
+          prerelease: false
