@@ -44,7 +44,17 @@ npm install
 npm run tauri dev     # launches the native window with a live zsh session
 ```
 
-Build a release bundle (AppImage/.deb/…):
+### Cutting a release
+
+Pushing a `v*` tag triggers [`.github/workflows/release.yml`](.github/workflows/release.yml),
+which builds the `.deb`, `.rpm`, and AppImage and attaches them to a **draft** GitHub
+release for a human to review and publish:
+
+```sh
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+Build a release bundle locally (AppImage/.deb/.rpm):
 
 ```sh
 npm run tauri icon src-tauri/icons/icon.png   # generate the platform icon set (once)

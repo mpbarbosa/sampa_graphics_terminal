@@ -463,8 +463,11 @@ The release bar, per §18:
 - ✅ Signature-feature tests green (palette inserts, man opens/closes, preview refuses
   writes + clears on Enter).
 - ✅ Config reference + user docs complete; default config and themes shipped.
-- ✅ AppImage + .deb (+ .rpm) published; `.desktop` and `x-terminal-emulator`
-  registration verified on at least one Debian-family and one non-GNOME desktop.
+- 🔨 AppImage + .deb + .rpm: bundles build in CI and a tag-triggered release workflow
+  (`.github/workflows/release.yml`) builds all three and drafts a GitHub release —
+  **publishing is the final `git tag v* && git push` step**. `.desktop` +
+  `x-terminal-emulator` registration verified via `dpkg-deb`/rpm-header parse; a clean-VM
+  install-and-register check on a Debian-family and a non-GNOME desktop remains.
 
 ---
 
