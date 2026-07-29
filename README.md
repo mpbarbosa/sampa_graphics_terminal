@@ -48,8 +48,9 @@ Build a release bundle (AppImage/.deb/…):
 
 ```sh
 npm run tauri icon src-tauri/icons/icon.png   # generate the platform icon set (once)
-npm run tauri build                            # all configured targets
+npm run tauri build                            # all configured targets (deb, rpm, AppImage)
 npm run tauri build -- --bundles deb           # just the .deb
+npm run tauri build -- --bundles rpm           # just the .rpm
 ```
 
 Install the `.deb` and make Sampa a registered terminal:
@@ -60,6 +61,19 @@ sudo dpkg -i "src-tauri/target/release/bundle/deb/Sampa Terminal_0.1.0_amd64.deb
 sampa                        # the installed command
 x-terminal-emulator -e htop  # launchers that use this will now open Sampa
 ```
+
+On Fedora / RHEL / openSUSE, install the `.rpm` instead:
+
+```sh
+sudo dnf install "src-tauri/target/release/bundle/rpm/Sampa Terminal-0.1.0-1.x86_64.rpm"
+sampa
+```
+
+The rpm ships the same binary and desktop entry but **no** `x-terminal-emulator`
+alternative (that's a Debian mechanism); on rpm distros terminal discovery is via the
+desktop entry + `xdg-terminal-exec`. Distribution is native-package only — Flatpak is
+declined for v1 (a host-shell terminal fights the sandbox; see
+[ADR 0001](docs/adr/0001-flatpak-distribution.md)).
 
 The `.desktop` entry carries `Categories=…;TerminalEmulator;`, so `xdg-terminal-exec`-aware
 launchers discover it too. **GNOME** removed its default-terminal setting; there GNOME users

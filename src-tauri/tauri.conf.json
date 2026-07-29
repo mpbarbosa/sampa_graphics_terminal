@@ -35,6 +35,11 @@
         "desktopTemplate": "../packaging/sampa.desktop",
         "postInstallScript": "../packaging/deb/postinst.sh",
         "preRemoveScript": "../packaging/deb/prerm.sh"
+      },
+      "rpm": {
+        "desktopTemplate": "../packaging/sampa.desktop",
+        "postInstallScript": "../packaging/rpm/postinst.sh",
+        "postRemoveScript": "../packaging/rpm/postrm.sh"
       }
     }
   }
