@@ -107,6 +107,7 @@ command palette, live man panel, safe preview). What's here:
 - [x] **Live reload**: a `notify` file-watcher re-applies theme, font, cursor, scrollback, and padding to a running window on save — no restart.
 - [x] **Tabs**: config-driven keybindings (`Ctrl+Shift+T/W/←/→`), OSC-titled tabs, chrome-free single tab, close reaps the child, last-tab-close quits.
 - [x] **Search** (`Ctrl+Shift+F`) with incremental highlight; font zoom; config-driven shell; visual bell.
+- [x] **Shortcut help** (`Ctrl+Shift+?`): an overlay listing every keybinding, built from the live config so it always reflects your binds (rebindable as `keybindings.help`).
 - [x] **CLI contract** (M3): `-e CMD` / `-- CMD`, `--working-directory`, `--title`, `--hold`, `--login`, `--class`, `--config` — verified live.
 - [x] **`.deb` packaging** (M3): `sampa` binary + `.desktop` (TerminalEmulator category); `postinst` registers `x-terminal-emulator` via `update-alternatives` — verified with `dpkg-deb`.
 - [x] **Shell integration** (M4 Phase 4.0): OSC 7 cwd + OSC 133 semantic-prompt scanning (`crates/shellint`); per-session cwd tracking (OSC 7 else `/proc`), new tabs inherit the active cwd; opt-in `shell-integration/sampa.{zsh,bash}` hooks.

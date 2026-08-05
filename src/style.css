@@ -311,6 +311,79 @@ body {
   font: 13px ui-sans-serif, system-ui, sans-serif;
 }
 
+/* Keyboard-shortcut help overlay (Ctrl+Shift+?) */
+#help {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+  background: rgba(0, 0, 0, 0.45);
+}
+#help[hidden] {
+  display: none;
+}
+.help-box {
+  width: min(480px, 90%);
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  background: #1a1b26;
+  border: 1px solid #2a2e42;
+  border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.help-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid #2a2e42;
+  color: #c0caf5;
+  font: 600 14px ui-sans-serif, system-ui, sans-serif;
+}
+.help-head button {
+  border: none;
+  background: transparent;
+  color: #7a819e;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+}
+.help-head button:hover {
+  color: #c0caf5;
+}
+#help-list {
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  overflow-y: auto;
+}
+#help-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 5px 10px;
+}
+#help-list kbd {
+  flex: 0 0 auto;
+  min-width: 140px;
+  color: #7dcfff;
+  background: #16161e;
+  border: 1px solid #2a2e42;
+  border-radius: 5px;
+  padding: 2px 7px;
+  font: 12px ui-monospace, monospace;
+  text-align: center;
+}
+#help-list .help-desc {
+  color: #a9b1d6;
+  font: 13px ui-sans-serif, system-ui, sans-serif;
+}
+
 /* Visual bell: a brief translucent flash over the whole surface (config-gated). */
 .bell-flash::after {
   content: "";
