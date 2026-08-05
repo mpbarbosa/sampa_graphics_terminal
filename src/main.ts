@@ -567,22 +567,66 @@ let allCommands: string[] | null = null;
 let paletteResults: string[] = [];
 let paletteSelected = 0;
 
-// Subsequence fuzzy score (higher is better); null if `q` isn't a subsequence of cmd.
-function fuzzyScore(cmd: string, q: string): number | null {
-  if (!q) return 0;
+// Flexible matcher (both args lowercased). Returns a score (higher is better) and
+// the set of matched character indices for highlighting, or null if no match.
+//
+// Tiers, strongest first, so a contiguous hit always outranks a scattered one:
+//   exact  ▸  prefix  ▸  word-boundary substring (git-`grep`)  ▸  substring
+//   anywhere (e`grep`)  ▸  loose subsequence (d-c-p → `d`o`c`ker-com`p`ose).
+// This is why typing "grep" clusters the whole grep family at the top while
+// scattered noise like "gv2ray-proxy-helper" sinks to the bottom.
+//
+// A space splits the query into tokens that must each match (AND), so "git grep"
+// or "doc comp" work — each token is scored independently and the hits merge.
+type Match = { score: number; hits: Set<number> };
+
+const WORD_BOUNDARY = new Set(["-", "_", ".", "/", "@", "+"]);
+
+function rangeSet(start: number, len: number): Set<number> {
+  const s = new Set<number>();
+  for (let i = 0; i < len; i++) s.add(start + i);
+  return s;
+}
+
+// Score a single (space-free) token against cmd.
+function scoreToken(cmd: string, t: string): Match | null {
+  if (cmd === t) return { score: 1000, hits: rangeSet(0, t.length) };
+  const sub = cmd.indexOf(t);
+  if (sub !== -1) {
+    let s = 200 - Math.min(sub, 100); // earlier occurrence is better
+    if (sub === 0) s += 100; // prefix
+    else if (WORD_BOUNDARY.has(cmd[sub - 1])) s += 60; // token start (git-grep)
+    return { score: s, hits: rangeSet(sub, t.length) };
+  }
+  // Loose subsequence fallback (kept below every substring hit).
   let ci = 0;
   let score = 0;
   let prev = -2;
-  for (const ch of q) {
+  const hits = new Set<number>();
+  for (const ch of t) {
     const idx = cmd.indexOf(ch, ci);
     if (idx === -1) return null;
     score -= idx - ci; // gap penalty
     if (idx === prev + 1) score += 5; // contiguity bonus
     if (idx === 0) score += 10; // prefix bonus
+    hits.add(idx);
     prev = idx;
     ci = idx + 1;
   }
-  return score - cmd.length * 0.1; // mild preference for shorter names
+  return { score, hits };
+}
+
+function scoreMatch(cmd: string, q: string): Match | null {
+  if (!q) return { score: 0, hits: new Set() };
+  const hits = new Set<number>();
+  let score = 0;
+  for (const t of q.split(/\s+/).filter(Boolean)) {
+    const m = scoreToken(cmd, t);
+    if (!m) return null; // every token must match
+    score += m.score;
+    m.hits.forEach((i) => hits.add(i));
+  }
+  return { score: score - cmd.length * 0.1, hits }; // mild shorter-name preference
 }
 
 function renderPalette(): void {
@@ -609,20 +653,17 @@ function renderPalette(): void {
   paletteList.children[paletteSelected]?.scrollIntoView({ block: "nearest" });
 }
 
-// Render `cmd` with the fuzzy-matched characters wrapped in <span class="match">.
+// Render `cmd` with the matched characters wrapped in <span class="match">, using
+// the exact hit set the matcher chose (so a substring hit highlights the run).
 function highlightInto(li: HTMLElement, cmd: string, q: string): void {
   if (!q) {
     li.textContent = cmd;
     return;
   }
-  const lower = cmd.toLowerCase();
-  let qi = 0;
+  const hits = scoreMatch(cmd.toLowerCase(), q)?.hits ?? new Set<number>();
   for (let i = 0; i < cmd.length; i++) {
     const span = document.createElement("span");
-    if (qi < q.length && lower[i] === q[qi]) {
-      span.className = "match";
-      qi++;
-    }
+    if (hits.has(i)) span.className = "match";
     span.textContent = cmd[i];
     li.append(span);
   }
@@ -632,9 +673,9 @@ function filterPalette(): void {
   const q = paletteInput.value.toLowerCase();
   const cmds = allCommands ?? [];
   paletteResults = cmds
-    .map((c) => [c, fuzzyScore(c.toLowerCase(), q)] as const)
-    .filter((x): x is readonly [string, number] => x[1] !== null)
-    .sort((a, b) => b[1] - a[1])
+    .map((c) => [c, scoreMatch(c.toLowerCase(), q)] as const)
+    .filter((x): x is readonly [string, Match] => x[1] !== null)
+    .sort((a, b) => b[1].score - a[1].score)
     .slice(0, PALETTE_MAX)
     .map((x) => x[0]);
   paletteSelected = 0;
