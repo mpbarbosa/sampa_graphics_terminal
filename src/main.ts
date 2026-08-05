@@ -148,14 +148,16 @@ function tokenToCode(tok: string): string | null {
     Equal: "Equal",
     Plus: "Equal",
     Minus: "Minus",
+    Slash: "Slash", // "?" is Shift+Slash on a US layout
     Backspace: "Backspace",
   };
   return named[tok] ?? null;
 }
 
 function parseChord(s: string): Chord {
-  const parts = s.split("+").map((p) => p.trim());
   const chord: Chord = { ctrl: false, shift: false, alt: false, meta: false, code: null };
+  if (!s) return chord; // missing/empty binding → never matches (code stays null)
+  const parts = s.split("+").map((p) => p.trim());
   for (const p of parts) {
     const lower = p.toLowerCase();
     if (lower === "ctrl" || lower === "control") chord.ctrl = true;
@@ -735,6 +737,95 @@ paletteEl.addEventListener("mousedown", (e) => {
   if (e.target === paletteEl) closePalette(); // click backdrop to dismiss
 });
 
+// ── Keyboard-shortcut help overlay (Ctrl+Shift+?) ────────────────────────────
+// Built from the *live* keybinding config so it always reflects the user's binds.
+const helpEl = document.getElementById("help")!;
+const helpList = document.getElementById("help-list")!;
+
+// The configurable actions, in display order: [config key, human label].
+const HELP_ACTIONS: Array<[string, string]> = [
+  ["new_tab", "New tab"],
+  ["close_tab", "Close tab"],
+  ["next_tab", "Next tab"],
+  ["prev_tab", "Previous tab"],
+  ["copy", "Copy selection"],
+  ["search", "Find in terminal"],
+  ["palette", "Command palette"],
+  ["toggle_man", "Toggle man-page panel"],
+  ["toggle_preview", "Toggle command preview"],
+  ["zoom_in", "Zoom in"],
+  ["zoom_out", "Zoom out"],
+  ["zoom_reset", "Reset zoom"],
+  ["help", "This help"],
+];
+// Built-in shortcuts that aren't config keybindings but are worth documenting.
+const HELP_FIXED: Array<[string, string]> = [
+  ["Ctrl+Shift+V", "Paste (multi-line pastes ask first)"],
+  ["Esc", "Close this help, an overlay, or a panel"],
+];
+
+// Turn a config chord ("Ctrl+Shift+Slash") into something readable ("Ctrl+Shift+?").
+const CHORD_SYMBOLS: Record<string, string> = {
+  Slash: "?",
+  Equal: "=",
+  Plus: "+",
+  Minus: "−",
+  Right: "→",
+  Left: "←",
+  Up: "↑",
+  Down: "↓",
+};
+function prettyChord(s: string): string {
+  return s
+    .split("+")
+    .map((p) => CHORD_SYMBOLS[p.trim()] ?? p.trim())
+    .join("+");
+}
+
+function openHelp(): void {
+  const kb = currentCfg.keybindings;
+  helpList.textContent = "";
+  const rows: Array<[string, string]> = [
+    ...HELP_ACTIONS.map(([key, label]) => [prettyChord(kb[key] ?? ""), label] as [string, string]),
+    ...HELP_FIXED,
+  ];
+  for (const [chord, label] of rows) {
+    const li = document.createElement("li");
+    const k = document.createElement("kbd");
+    k.textContent = chord;
+    const d = document.createElement("span");
+    d.className = "help-desc";
+    d.textContent = label;
+    li.append(k, d);
+    helpList.append(li);
+  }
+  helpEl.hidden = false;
+}
+function closeHelp(): void {
+  helpEl.hidden = true;
+  activeTab()?.term.focus();
+}
+function toggleHelp(): void {
+  if (helpEl.hidden) openHelp();
+  else closeHelp();
+}
+helpEl.addEventListener("mousedown", (e) => {
+  if (e.target === helpEl) closeHelp(); // click backdrop to dismiss
+});
+document.getElementById("help-close")!.addEventListener("click", closeHelp);
+// Esc closes help (it has no focused input, so handle it here).
+document.addEventListener(
+  "keydown",
+  (e) => {
+    if (!helpEl.hidden && e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      closeHelp();
+    }
+  },
+  true,
+);
+
 // ── Live man panel (DESIGN.md §10.2) ─────────────────────────────────────────
 // As you type a command, show `man <cmd>` beside the terminal. Robust because the
 // command boundary comes from the OSC 133 B mark (needs the shell integration hook);
@@ -982,6 +1073,7 @@ function rebuildBindings(): void {
     [parseChord(kb.zoom_in), () => zoom(1)],
     [parseChord(kb.zoom_out), () => zoom(-1)],
     [parseChord(kb.zoom_reset), () => zoom(null)],
+    [parseChord(kb.help), toggleHelp],
   ];
 }
 rebuildBindings();

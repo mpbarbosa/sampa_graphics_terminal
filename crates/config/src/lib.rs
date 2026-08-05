@@ -278,6 +278,7 @@ pub struct Keybindings {
     pub zoom_in: String,
     pub zoom_out: String,
     pub zoom_reset: String,
+    pub help: String,
 }
 
 impl Default for Keybindings {
@@ -295,6 +296,7 @@ impl Default for Keybindings {
             zoom_in: "Ctrl+Shift+Equal".into(),
             zoom_out: "Ctrl+Shift+Minus".into(),
             zoom_reset: "Ctrl+Shift+0".into(),
+            help: "Ctrl+Shift+Slash".into(), // Ctrl+Shift+? on a US layout
         }
     }
 }
@@ -424,6 +426,7 @@ toggle_preview = "Ctrl+Shift+R"
 zoom_in = "Ctrl+Shift+Equal"
 zoom_out = "Ctrl+Shift+Minus"
 zoom_reset = "Ctrl+Shift+0"
+help = "Ctrl+Shift+Slash"  # Ctrl+Shift+? — shows the shortcuts overlay
 
 [rendering]
 gpu = true          # WebGL renderer (falls back to canvas if unavailable)
