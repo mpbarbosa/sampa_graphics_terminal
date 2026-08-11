@@ -384,6 +384,100 @@ body {
   font: 13px ui-sans-serif, system-ui, sans-serif;
 }
 
+/* Claude-API command suggester (Ctrl+Shift+A) */
+#ai {
+  position: fixed;
+  inset: 0;
+  z-index: 92;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+  background: rgba(0, 0, 0, 0.45);
+}
+#ai[hidden] {
+  display: none;
+}
+.ai-box {
+  width: min(560px, 90%);
+  display: flex;
+  flex-direction: column;
+  background: #1a1b26;
+  border: 1px solid #2a2e42;
+  border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+#ai-input {
+  border: none;
+  border-bottom: 1px solid #2a2e42;
+  background: transparent;
+  color: #c0caf5;
+  font: 15px ui-monospace, monospace;
+  padding: 12px 14px;
+  outline: none;
+}
+#ai-note {
+  padding: 8px 14px;
+  color: #e0af68;
+  background: rgba(224, 175, 104, 0.08);
+  font: 12px ui-sans-serif, system-ui, sans-serif;
+}
+#ai-status {
+  padding: 12px 14px;
+  color: #a9b1d6;
+  font: 13px ui-sans-serif, system-ui, sans-serif;
+}
+#ai-result {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+/* `display: flex` above outranks the UA [hidden] rule — restore it explicitly. */
+#ai-result[hidden],
+#ai-status[hidden] {
+  display: none;
+}
+#ai-command {
+  display: block;
+  color: #7dcfff;
+  background: #16161e;
+  border: 1px solid #2a2e42;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: 14px ui-monospace, monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+#ai-explanation {
+  margin: 0;
+  color: #a9b1d6;
+  font: 13px ui-sans-serif, system-ui, sans-serif;
+}
+#ai-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+#ai-actions button {
+  border: 1px solid #2a2e42;
+  background: #24283b;
+  color: #c0caf5;
+  border-radius: 6px;
+  padding: 5px 12px;
+  font: 13px ui-sans-serif, system-ui, sans-serif;
+  cursor: pointer;
+}
+#ai-actions #ai-insert {
+  background: #7aa2f7;
+  color: #16161e;
+  border-color: #7aa2f7;
+}
+#ai-actions button:hover {
+  filter: brightness(1.1);
+}
+
 /* Visual bell: a brief translucent flash over the whole surface (config-gated). */
 .bell-flash::after {
   content: "";
