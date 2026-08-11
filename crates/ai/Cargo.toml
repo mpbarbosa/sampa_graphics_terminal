@@ -1,0 +1,15 @@
+[package]
+name = "sampa-ai"
+version = "0.1.0"
+edition = "2021"
+description = "Optional Claude API integration: natural-language → shell command (opt-in, §13 network surface)."
+license = "MIT"
+
+# Headless and GUI-free, like the other service crates. The request-building and
+# response-parsing core is pure and unit-tested against a fake Transport, so no
+# network is touched in tests. The real transport (`UreqTransport`) is the only
+# part that opens a socket — Sampa's single, opt-in network surface.
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = "2"

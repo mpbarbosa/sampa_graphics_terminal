@@ -108,6 +108,7 @@ command palette, live man panel, safe preview). What's here:
 - [x] **Tabs**: config-driven keybindings (`Ctrl+Shift+T/W/←/→`), OSC-titled tabs, chrome-free single tab, close reaps the child, last-tab-close quits.
 - [x] **Search** (`Ctrl+Shift+F`) with incremental highlight; font zoom; config-driven shell; visual bell.
 - [x] **Shortcut help** (`Ctrl+Shift+?`): an overlay listing every keybinding, built from the live config so it always reflects your binds (rebindable as `keybindings.help`).
+- [x] **AI command suggester** (`Ctrl+Shift+A`, **opt-in**): describe a command (or an output) in natural language and get it back via the Claude API (`crates/ai`). **Off by default** — it is Sampa's only network surface; enable `[ai] enabled = true`, supply `ANTHROPIC_API_KEY` in the environment (never the config file), and the suggestion is **inserted at the prompt, never auto-run**. Point `[ai] endpoint` at a local model to keep data on-device.
 - [x] **CLI contract** (M3): `-e CMD` / `-- CMD`, `--working-directory`, `--title`, `--hold`, `--login`, `--class`, `--config` — verified live.
 - [x] **`.deb` packaging** (M3): `sampa` binary + `.desktop` (TerminalEmulator category); `postinst` registers `x-terminal-emulator` via `update-alternatives` — verified with `dpkg-deb`.
 - [x] **Shell integration** (M4 Phase 4.0): OSC 7 cwd + OSC 133 semantic-prompt scanning (`crates/shellint`); per-session cwd tracking (OSC 7 else `/proc`), new tabs inherit the active cwd; opt-in `shell-integration/sampa.{zsh,bash}` hooks.

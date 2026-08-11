@@ -26,6 +26,7 @@ interface Config {
   rendering: { gpu: boolean; images: boolean };
   clipboard: { osc52_write: "ask" | "allow" | "deny" };
   features: { palette: boolean; man: boolean; preview: boolean };
+  ai: { enabled: boolean; model: string; endpoint: string; send_context: boolean };
 }
 
 // Escape-sequence hardening (§13). Terminal output is untrusted: a window/tab title
@@ -826,6 +827,102 @@ document.addEventListener(
   true,
 );
 
+// ── Claude-API command suggester (Ctrl+Shift+A, opt-in §13) ──────────────────
+// Turns a natural-language request into a command via one Messages API call. The
+// overlay makes the network egress explicit; the result is *inserted* at the
+// prompt, never auto-run (the same boundary as the palette). Context is attached
+// only if the user opted into `[ai] send_context`.
+const aiEl = document.getElementById("ai")!;
+const aiInput = document.getElementById("ai-input") as HTMLInputElement;
+const aiNote = document.getElementById("ai-note")!;
+const aiResult = document.getElementById("ai-result")!;
+const aiCommand = document.getElementById("ai-command")!;
+const aiExplanation = document.getElementById("ai-explanation")!;
+const aiStatus = document.getElementById("ai-status")!;
+let aiSuggestion = "";
+
+function resetAiOverlay(): void {
+  aiResult.hidden = true;
+  aiStatus.hidden = true;
+  aiNote.hidden = false;
+  aiSuggestion = "";
+}
+function openAi(): void {
+  resetAiOverlay();
+  aiInput.value = "";
+  aiEl.hidden = false;
+  aiInput.focus();
+  if (!currentCfg.ai.enabled) {
+    aiNote.hidden = true;
+    aiStatus.hidden = false;
+    aiStatus.textContent = "The AI suggester is off. Set [ai] enabled = true in config.toml.";
+  }
+}
+function closeAi(): void {
+  aiEl.hidden = true;
+  activeTab()?.term.focus();
+}
+
+async function askAi(): Promise<void> {
+  const prompt = aiInput.value.trim();
+  if (!prompt || !currentCfg.ai.enabled) return;
+  aiNote.hidden = true;
+  aiResult.hidden = true;
+  aiStatus.hidden = false;
+  aiStatus.textContent = "Asking Claude…";
+  // Only gather context when the user opted in; the backend re-checks too.
+  let context: string | null = null;
+  if (currentCfg.ai.send_context) {
+    const t = activeTab();
+    if (t) {
+      const buf = t.term.buffer.active;
+      const lines: string[] = [];
+      const start = Math.max(0, buf.length - 40);
+      for (let y = start; y < buf.length; y++) lines.push(buf.getLine(y)?.translateToString(true) ?? "");
+      context = lines.join("\n").trimEnd();
+    }
+  }
+  try {
+    const s = await invoke<{ command: string; explanation: string }>("suggest_command", {
+      prompt,
+      context,
+    });
+    aiSuggestion = s.command;
+    aiCommand.textContent = s.command;
+    aiExplanation.textContent = s.explanation;
+    aiStatus.hidden = true;
+    aiResult.hidden = false;
+  } catch (err) {
+    aiStatus.textContent = `Couldn't get a suggestion: ${String(err)}`;
+  }
+}
+
+aiInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    // Enter runs the query while typing, or inserts once a suggestion is shown.
+    if (!aiResult.hidden && aiSuggestion) {
+      insertCommand(aiSuggestion);
+      closeAi();
+    } else {
+      void askAi();
+    }
+  } else if (e.key === "Escape") {
+    e.preventDefault();
+    closeAi();
+  }
+});
+document.getElementById("ai-insert")!.addEventListener("click", () => {
+  if (aiSuggestion) {
+    insertCommand(aiSuggestion);
+    closeAi();
+  }
+});
+document.getElementById("ai-cancel")!.addEventListener("click", closeAi);
+aiEl.addEventListener("mousedown", (e) => {
+  if (e.target === aiEl) closeAi(); // click backdrop to dismiss
+});
+
 // ── Live man panel (DESIGN.md §10.2) ─────────────────────────────────────────
 // As you type a command, show `man <cmd>` beside the terminal. Robust because the
 // command boundary comes from the OSC 133 B mark (needs the shell integration hook);
@@ -1074,6 +1171,7 @@ function rebuildBindings(): void {
     [parseChord(kb.zoom_out), () => zoom(-1)],
     [parseChord(kb.zoom_reset), () => zoom(null)],
     [parseChord(kb.help), toggleHelp],
+    [parseChord(kb.ai), openAi],
   ];
 }
 rebuildBindings();
@@ -1082,7 +1180,12 @@ document.addEventListener(
   "keydown",
   (e) => {
     // Don't hijack chords while typing in an overlay input (they handle their own keys).
-    if (document.activeElement === searchInput || document.activeElement === paletteInput) return;
+    if (
+      document.activeElement === searchInput ||
+      document.activeElement === paletteInput ||
+      document.activeElement === aiInput
+    )
+      return;
     for (const [chord, fn] of bindings) {
       if (chordMatches(chord, e)) {
         e.preventDefault();

@@ -345,6 +345,56 @@ fn open_url(url: String) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// Opt-in Claude-API command suggester (§13, AI-integration doc). Turns a
+/// natural-language `prompt` into a single command + explanation via one Messages
+/// API call. This is Sampa's ONLY outbound network surface, so it is inert unless
+/// `[ai] enabled = true`, and the API key comes from `ANTHROPIC_API_KEY` (never the
+/// config file). `context` is attached only when the user opted into `send_context`.
+/// The result is a suggestion — the frontend inserts it at the prompt, never runs it.
+#[tauri::command]
+async fn suggest_command(
+    config: State<'_, ConfigState>,
+    prompt: String,
+    context: Option<String>,
+) -> Result<sampa_ai::Suggestion, String> {
+    let (ai_cfg, shell) = {
+        let c = config.current.lock().unwrap();
+        (c.ai.clone(), c.shell.program.clone())
+    };
+    if !ai_cfg.enabled {
+        return Err("AI suggester is disabled — set [ai] enabled = true in config.toml".into());
+    }
+    let api_key = std::env::var("ANTHROPIC_API_KEY")
+        .map_err(|_| "ANTHROPIC_API_KEY is not set in the environment".to_string())?;
+
+    let params = sampa_ai::Params {
+        model: ai_cfg.model,
+        endpoint: ai_cfg.endpoint,
+        api_key,
+        max_tokens: 2048,
+    };
+    let shell_name = shell
+        .as_deref()
+        .and_then(|p| p.rsplit('/').next())
+        .unwrap_or("shell")
+        .to_string();
+    // Only ship context when the user opted in — belt-and-suspenders with the frontend.
+    let ctx = if ai_cfg.send_context { context } else { None };
+
+    // ureq blocks; keep it off the async runtime thread.
+    tokio::task::spawn_blocking(move || {
+        let req = sampa_ai::Request {
+            prompt: &prompt,
+            context: ctx.as_deref(),
+            os: std::env::consts::OS,
+            shell: &shell_name,
+        };
+        sampa_ai::suggest_over_network(&params, &req).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Launch-time options from the command line (`--hold`, `--title`).
 #[tauri::command]
 fn get_launch_options(cli: State<'_, CliState>) -> LaunchOptions {
@@ -483,6 +533,7 @@ pub fn run() {
             render_man,
             render_preview,
             open_url,
+            suggest_command,
             quit_app,
             get_launch_options
         ])

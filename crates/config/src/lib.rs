@@ -29,6 +29,9 @@ pub struct Config {
     /// Signature-feature toggles (wired up in M4); present now so configs are
     /// forward-compatible.
     pub features: Features,
+    /// Opt-in Claude-API command suggester. Off by default — it is Sampa's only
+    /// network surface (§13).
+    pub ai: Ai,
 }
 
 impl Default for Config {
@@ -45,6 +48,7 @@ impl Default for Config {
             rendering: Rendering::default(),
             clipboard: Clipboard::default(),
             features: Features::default(),
+            ai: Ai::default(),
         }
     }
 }
@@ -279,6 +283,7 @@ pub struct Keybindings {
     pub zoom_out: String,
     pub zoom_reset: String,
     pub help: String,
+    pub ai: String,
 }
 
 impl Default for Keybindings {
@@ -297,6 +302,7 @@ impl Default for Keybindings {
             zoom_out: "Ctrl+Shift+Minus".into(),
             zoom_reset: "Ctrl+Shift+0".into(),
             help: "Ctrl+Shift+Slash".into(), // Ctrl+Shift+? on a US layout
+            ai: "Ctrl+Shift+A".into(),       // ask the Claude-API command suggester
         }
     }
 }
@@ -315,6 +321,36 @@ impl Default for Features {
             palette: false,
             man: false,
             preview: false,
+        }
+    }
+}
+
+/// Opt-in Claude-API command suggester (§13). Disabled by default because it is
+/// Sampa's only outbound network surface and sends the user's request to a third
+/// party. The API key is read from the `ANTHROPIC_API_KEY` environment variable at
+/// runtime — never from this file.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Ai {
+    /// Master switch. When false, the suggester is inert and no request is ever made.
+    pub enabled: bool,
+    /// Model id (default `claude-opus-5`; use `claude-haiku-4-5` for lower latency/cost).
+    pub model: String,
+    /// Messages endpoint. Point at a local/OpenAI-compatible-proxy URL to keep data
+    /// on-device instead of sending it to the hosted Claude API.
+    pub endpoint: String,
+    /// When true, attach recent terminal output/cwd to the request. Off by default —
+    /// terminal output can contain secrets, and this is the data that leaves the machine.
+    pub send_context: bool,
+}
+
+impl Default for Ai {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            model: "claude-opus-5".into(),
+            endpoint: "https://api.anthropic.com/v1/messages".into(),
+            send_context: false,
         }
     }
 }
@@ -427,6 +463,7 @@ zoom_in = "Ctrl+Shift+Equal"
 zoom_out = "Ctrl+Shift+Minus"
 zoom_reset = "Ctrl+Shift+0"
 help = "Ctrl+Shift+Slash"  # Ctrl+Shift+? — shows the shortcuts overlay
+ai = "Ctrl+Shift+A"        # ask the Claude-API command suggester (opt-in; see [ai])
 
 [rendering]
 gpu = true          # WebGL renderer (falls back to canvas if unavailable)
@@ -439,6 +476,13 @@ osc52_write = "ask" # app clipboard writes (OSC 52): ask | allow | deny. Reads a
 palette = false
 man = false
 preview = false
+
+[ai]                # opt-in Claude-API command suggester — Sampa's ONLY network surface (§13)
+enabled = false     # master switch; off means no request is ever made
+model = "claude-opus-5"                       # or claude-haiku-4-5 for lower latency/cost
+endpoint = "https://api.anthropic.com/v1/messages"  # point at a local proxy to keep data on-device
+send_context = false  # attach recent output/cwd (may contain secrets) to the request
+# The API key comes from the ANTHROPIC_API_KEY environment variable, never this file.
 "##;
 
 #[cfg(test)]
