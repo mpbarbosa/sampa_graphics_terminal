@@ -60,9 +60,9 @@ posture, because Sampa deliberately has **no outbound network today**:
    treatment as any "send content to an external service" action — a **confirmation**,
    because sending publishes.
 2. **The API key is a secret.** Never in the repo, never in `config.toml`. Read it from the
-   environment (`ANTHROPIC_API_KEY`) or a user-pointed path; the app never stores or prompts
-   for it in plaintext. (Handling credentials in-app is exactly the class of action Sampa
-   should push back to the user.)
+   environment (`ANTHROPIC_API_KEY`); the app never stores or prompts for it in plaintext.
+   (Handling credentials in-app is exactly the class of action Sampa should push back to the
+   user.)
 3. **Terminal content is sensitive.** The description — and any context you attach (recent
    output, cwd, shell) — can contain tokens, keys, PII, hostnames. Default to sending the
    **least** possible: the user's typed request only. Attaching scrollback/output should be
