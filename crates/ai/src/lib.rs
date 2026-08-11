@@ -90,11 +90,125 @@ explanation.",
     )
 }
 
+/// Placeholder substituted for anything the redactor masks.
+const REDACTED: &str = "‹redacted›";
+
+/// Assignment keys whose *value* is masked (case-insensitive substring match), e.g.
+/// `API_TOKEN=…`, `Authorization: …`.
+const SECRET_KEY_HINTS: &[&str] = &[
+    "TOKEN", "SECRET", "PASSWORD", "PASSWD", "APIKEY", "API_KEY", "ACCESS_KEY",
+    "PRIVATE_KEY", "CREDENTIAL", "AUTHORIZATION", "SESSION_KEY",
+];
+
+/// Well-known credential token prefixes, masked wherever they appear.
+const SECRET_PREFIXES: &[&str] = &[
+    "sk-", "rk-", "ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_", "glpat-",
+    "xoxb-", "xoxp-", "xoxa-", "xoxr-", "xoxs-", "AKIA", "ASIA", "AIza", "ya29.", "npm_",
+];
+
+/// Best-effort redaction of obvious secret shapes before terminal context leaves the
+/// machine (feasibility §4). This is **defense in depth, not a guarantee** — the primary
+/// control is that `send_context` is off by default. It masks: values of secret-named
+/// assignments (`TOKEN`/`SECRET`/`PASSWORD`/…, and `Authorization:` headers), tokens with
+/// known credential prefixes (`sk-`, `ghp_`, `AKIA…`, `xox…`, …), PEM private-key blocks,
+/// and long high-entropy tokens. It errs toward leaving ordinary output intact — lowercase
+/// hex digests / git SHAs and normal words/paths are not masked.
+pub fn redact(input: &str) -> String {
+    let mut out: Vec<String> = Vec::new();
+    let mut in_pem = false;
+    for line in input.lines() {
+        let upper = line.to_ascii_uppercase();
+        // PEM private-key blocks: drop the body, leave a marker.
+        if !in_pem && upper.contains("BEGIN") && upper.contains("PRIVATE KEY") {
+            in_pem = true;
+            out.push(format!("{REDACTED} (PEM private key)"));
+            continue;
+        }
+        if in_pem {
+            if upper.contains("END") && upper.contains("PRIVATE KEY") {
+                in_pem = false;
+            }
+            continue;
+        }
+        // Secret-named assignment: mask the value, keep the key.
+        if let Some(masked) = redact_assignment(line) {
+            out.push(masked);
+            continue;
+        }
+        // Otherwise scan tokens for credential shapes (split/join on ' ' is lossless).
+        out.push(line.split(' ').map(redact_token).collect::<Vec<_>>().join(" "));
+    }
+    let mut s = out.join("\n");
+    if input.ends_with('\n') {
+        s.push('\n');
+    }
+    s
+}
+
+/// Mask a `KEY=VALUE` / `KEY: VALUE` line when the key names a secret; else `None`.
+/// The key is the last whitespace-delimited word before the separator, so a shell
+/// prompt or `export ` prefix (`❯ echo TOKEN=…`) doesn't defeat the match.
+fn redact_assignment(line: &str) -> Option<String> {
+    let sep_idx = match (line.find('='), line.find(':')) {
+        (Some(e), Some(c)) => e.min(c),
+        (Some(e), None) => e,
+        (None, Some(c)) => c,
+        (None, None) => return None,
+    };
+    let key = line[..sep_idx].rsplit(char::is_whitespace).next().unwrap_or("").trim();
+    // The key must read like an identifier/header name, and name a secret.
+    if key.is_empty()
+        || !key.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-'))
+    {
+        return None;
+    }
+    let key_up = key.to_ascii_uppercase();
+    if !SECRET_KEY_HINTS.iter().any(|h| key_up.contains(h)) {
+        return None;
+    }
+    let prefix = &line[..=sep_idx]; // everything up to and including the separator
+    let gap = if line[sep_idx + 1..].starts_with(' ') { " " } else { "" };
+    Some(format!("{prefix}{gap}{REDACTED}"))
+}
+
+/// Mask a single whitespace token if its core looks like a credential.
+fn redact_token(tok: &str) -> String {
+    let core = tok.trim_matches(|c: char| {
+        matches!(c, '"' | '\'' | '`' | '(' | ')' | '[' | ']' | '{' | '}' | ',' | ';')
+    });
+    if !core.is_empty() && looks_like_secret_token(core) {
+        return tok.replacen(core, REDACTED, 1);
+    }
+    tok.to_string()
+}
+
+/// A token is a likely secret if it (or its value-part after a `=`/`:`, e.g.
+/// `TOKEN=sk-…`) has a known prefix, or if it is a long high-entropy blob (secret
+/// charset, mixed upper+lower+digit — so lowercase hashes / SHAs are spared).
+fn looks_like_secret_token(tok: &str) -> bool {
+    let value = tok.rsplit(['=', ':']).next().unwrap_or(tok);
+    if SECRET_PREFIXES.iter().any(|p| tok.starts_with(p) || value.starts_with(p)) {
+        return true;
+    }
+    if tok.len() < 32 {
+        return false;
+    }
+    let charset_ok = tok
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '=' | '_' | '-'));
+    let has_upper = tok.chars().any(|c| c.is_ascii_uppercase());
+    let has_lower = tok.chars().any(|c| c.is_ascii_lowercase());
+    let has_digit = tok.chars().any(|c| c.is_ascii_digit());
+    charset_ok && has_upper && has_lower && has_digit
+}
+
 fn user_content(req: &Request) -> String {
     let mut s = format!("<request>\n{}\n</request>", req.prompt);
     if let Some(ctx) = req.context {
+        // The context is the data that leaves the machine — redact obvious secrets first.
+        let safe = redact(ctx);
         s.push_str(&format!(
-            "\n\n<terminal_context note=\"may be truncated\">\n{ctx}\n</terminal_context>"
+            "\n\n<terminal_context note=\"may be truncated; secrets redacted\">\n{safe}\n</terminal_context>"
         ));
     }
     s
@@ -311,5 +425,55 @@ mod tests {
             Err(AiError::Http(m)) => assert!(m.contains("401")),
             other => panic!("expected Http error, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn redacts_credential_prefixes_but_keeps_ordinary_output() {
+        let input = "total 48\ndeploy sk-ant-api03-abc123DEF456ghi and ghp_ABCdef123456xyz\ncommit 8ab34f0c9e2d1122334455667788990011223344";
+        let out = redact(input);
+        assert!(!out.contains("sk-ant-api03"));
+        assert!(!out.contains("ghp_ABCdef"));
+        assert!(out.contains(REDACTED));
+        assert!(out.contains("total 48")); // ordinary line untouched
+        // A lowercase git SHA is not a secret shape — it must survive.
+        assert!(out.contains("8ab34f0c9e2d1122334455667788990011223344"));
+    }
+
+    #[test]
+    fn redacts_secret_named_assignments_and_auth_header() {
+        let out = redact("PASSWORD=hunter2\nAuthorization: Bearer xyztokenvalue\nPATH=/usr/bin:/bin");
+        assert!(out.contains(&format!("PASSWORD={REDACTED}")));
+        assert!(out.contains(&format!("Authorization: {REDACTED}")));
+        assert!(!out.contains("hunter2") && !out.contains("xyztokenvalue"));
+        assert!(out.contains("PATH=/usr/bin:/bin")); // not secret-named → kept verbatim
+    }
+
+    #[test]
+    fn redacts_pem_private_key_block() {
+        let pem = "before\n-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXkAAAA\nQyNTUxOQAAACD\n-----END OPENSSH PRIVATE KEY-----\nafter";
+        let out = redact(pem);
+        assert!(!out.contains("b3BlbnNzaC1rZXk"));
+        assert!(out.contains("PEM private key"));
+        assert!(out.contains("before") && out.contains("after"));
+    }
+
+    #[test]
+    fn redacts_secret_glued_in_a_prompt_prefixed_command_line() {
+        // Real scrollback: a shell prompt + `echo` of a secret. Neither the prompt char
+        // nor the `KEY=` gluing may let the secret through.
+        let out = redact("❯ echo TOKEN=sk-live-SECRET123abcDEF");
+        assert!(!out.contains("sk-live-SECRET123abcDEF"));
+        assert!(out.contains(REDACTED));
+    }
+
+    #[test]
+    fn context_is_redacted_before_egress() {
+        let t = FakeTransport::new(&ok_response("ls", "x"));
+        let mut r = req();
+        r.context = Some("run: export API_TOKEN=sk-live-SEKRET123abcDEF now");
+        suggest(&t, &params(), &r).unwrap();
+        let body = t.seen_body.borrow();
+        assert!(body.contains("terminal_context"));
+        assert!(!body.contains("sk-live-SEKRET123abcDEF"));
     }
 }
