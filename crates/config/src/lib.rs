@@ -32,6 +32,9 @@ pub struct Config {
     /// Opt-in Claude-API command suggester. Off by default — it is Sampa's only
     /// network surface (§13).
     pub ai: Ai,
+    /// `ps(1)` output enhancement (docs/spec-ps-output-enhancement.md). Presentation
+    /// only — piped/redirected output is always byte-identical.
+    pub enhance: Enhance,
 }
 
 impl Default for Config {
@@ -49,6 +52,7 @@ impl Default for Config {
             clipboard: Clipboard::default(),
             features: Features::default(),
             ai: Ai::default(),
+            enhance: Enhance::default(),
         }
     }
 }
@@ -355,6 +359,49 @@ impl Default for Ai {
     }
 }
 
+/// The `ps(1)` output-enhancement level (spec §3). Levels are progressive — each builds
+/// on the one below and needs more terminal width; below a level's width threshold the
+/// emulator falls back one level. Piped/redirected `ps` is never enhanced regardless.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PsEnhance {
+    /// No enhancement anywhere — raw passthrough (the escape hatch).
+    Off,
+    /// Level 1a — text + colour only: zero elision, size units, kernel fold. SSH-safe.
+    Quiet,
+    /// Level 1b — 1a plus signal bars, live sort, and a position readout.
+    Bars,
+    /// Level 1c — the two-pane, selectable inspector.
+    Inspector,
+}
+
+/// `ps(1)` output enhancement (spec §3). Default level is `quiet` (the SSH-safe 1a); the
+/// width thresholds gate the richer levels and drive one-level fallback on narrow
+/// terminals.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Enhance {
+    /// The `ps` enhancement level: `off | quiet | bars | inspector`.
+    pub ps: PsEnhance,
+    /// Below this width, no enhancement is applied at all (raw passthrough). Default 80.
+    pub min_width: u16,
+    /// Below this width, the `bars` level falls back to `quiet`. Default 100.
+    pub min_width_bars: u16,
+    /// Below this width, the `inspector` level falls back to `bars`. Default 120.
+    pub min_width_inspector: u16,
+}
+
+impl Default for Enhance {
+    fn default() -> Self {
+        Self {
+            ps: PsEnhance::Quiet,
+            min_width: 80,
+            min_width_bars: 100,
+            min_width_inspector: 120,
+        }
+    }
+}
+
 impl Config {
     /// Parse a config from a TOML string. Unknown keys are rejected so typos
     /// surface instead of silently doing nothing.
@@ -483,6 +530,12 @@ model = "claude-opus-5"                       # or claude-haiku-4-5 for lower la
 endpoint = "https://api.anthropic.com/v1/messages"  # point at a local proxy to keep data on-device
 send_context = false  # attach recent output/cwd (may contain secrets) to the request
 # The API key comes from the ANTHROPIC_API_KEY environment variable, never this file.
+
+[enhance]               # ps(1) output enhancement — presentation only; pipes stay byte-identical
+ps = "quiet"            # off | quiet | bars | inspector (progressive; quiet is SSH-safe 1a)
+min_width = 80          # below this many columns, no enhancement at all (raw passthrough)
+min_width_bars = 100    # below this, the bars level falls back to quiet
+min_width_inspector = 120  # below this, the inspector level falls back to bars
 "##;
 
 #[cfg(test)]
@@ -506,6 +559,28 @@ mod tests {
         assert_eq!(c.cursor.style, CursorStyle::Block);
         assert_eq!(c.scrollback.lines, 10_000);
         assert!(c.shell.program.is_none());
+    }
+
+    #[test]
+    fn enhance_default_and_override() {
+        // Default is the SSH-safe 1a level with the spec's width thresholds.
+        let d = Config::default().enhance;
+        assert_eq!(d.ps, PsEnhance::Quiet);
+        assert_eq!(d.min_width, 80);
+        assert_eq!(d.min_width_bars, 100);
+        assert_eq!(d.min_width_inspector, 120);
+
+        // Level parses from its lowercase name; unspecified fields keep defaults.
+        let c = Config::from_toml("[enhance]\nps = \"inspector\"\n").unwrap();
+        assert_eq!(c.enhance.ps, PsEnhance::Inspector);
+        assert_eq!(c.enhance.min_width_bars, 100);
+
+        // The escape hatch.
+        let off = Config::from_toml("[enhance]\nps = \"off\"\n").unwrap();
+        assert_eq!(off.enhance.ps, PsEnhance::Off);
+
+        // A bad level name is rejected, not silently ignored.
+        assert!(Config::from_toml("[enhance]\nps = \"fancy\"\n").is_err());
     }
 
     #[test]
