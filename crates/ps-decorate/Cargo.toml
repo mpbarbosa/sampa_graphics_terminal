@@ -1,0 +1,11 @@
+[package]
+name = "sampa-ps-decorate"
+version = "0.1.0"
+edition = "2021"
+description = "TTY-only presentation layer over unmodified ps output (docs/spec-ps-output-enhancement.md). Headless parse-and-decorate core."
+license = "MIT"
+
+# Pure, GUI-free core — same rule as pty-core/config/preview: no Tauri/webview
+# imports. The parser fails safe to raw passthrough (returns None) on any header
+# mismatch or malformed row, so a non-`ps` stream is never mangled. std-only.
+[dependencies]
