@@ -31,24 +31,29 @@ In both, the result is a **suggested command line**, plus a short explanation.
 It maps onto patterns Sampa already has, so the renderer-agnostic core stays clean:
 
 - **New headless crate `crates/ai` (`sampa-ai`)** — GUI-free, like the other service crates.
-  Rust has no official Anthropic SDK, so it calls the Messages API over **raw HTTPS**
-  (`reqwest`): `POST https://api.anthropic.com/v1/messages`, headers `x-api-key` +
-  `anthropic-version: 2023-06-01`. Unit-testable by mocking the HTTP layer. **No Tauri
-  imports** — same rule as `pty-core`/`config`/`preview`.
-- **Bridge command** `suggest_command(description, context) -> { command, explanation }`,
-  following the existing command/event split in `src-tauri/src/lib.rs`.
+  Rust has no official Anthropic SDK, so it calls the Messages API over **raw HTTPS** —
+  *as built*, via **`ureq`** (lighter than `reqwest` for a single blocking POST): `POST
+  https://api.anthropic.com/v1/messages`, headers `x-api-key` + `anthropic-version:
+  2023-06-01`. The request-build/response-parse core is pure and tested against a fake
+  **`Transport` trait** (7 tests, **no network**); the real `UreqTransport` is the sole
+  socket. **No Tauri imports** — same rule as `pty-core`/`config`/`preview`.
+- **Bridge command** `suggest_command(prompt, context) -> { command, explanation }`
+  (`src-tauri/src/lib.rs`). Gates on `[ai] enabled` + the env key, then runs the blocking
+  call off the async runtime via `tokio::task::spawn_blocking`.
 - **Structured output** — send `output_config.format` with a `json_schema` for
   `{ command: string, explanation: string }` so parsing is guaranteed (supported on
-  `claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5`). `max_tokens` ~1024; no assistant
-  prefill (removed on current models).
-- **Frontend UX = the palette pattern.** An overlay (like `Ctrl+Shift+P`) takes a
+  `claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5`). *As built*, `max_tokens = 2048`
+  (headroom for thinking-on models like `claude-opus-5`); no assistant prefill (removed on
+  current models).
+- **Frontend UX = the palette pattern.** An overlay (`Ctrl+Shift+A`) takes a
   natural-language prompt; the returned command is **inserted at the prompt, never
   auto-run** — exactly the §10.1 / §13 boundary the command palette already honors. If the
   user then hits preview (`Ctrl+Shift+R`), the existing `sampa_preview::classify` gate still
   applies. The service stays in the core; only the overlay lives in `src/main.ts`.
 - **Config** — a new `[ai]` block, **off by default**: `enabled = false`, `model`
   (default `claude-opus-5`; `claude-haiku-4-5`/`claude-sonnet-5` for lower latency/cost),
-  `endpoint` (override for a proxy or a **local** model), and a `context` scope knob (§4).
+  `endpoint` (override for a proxy or a **local** model), and *as built* a
+  **`send_context` bool** (§4) — off by default, gating whether recent output/cwd is attached.
 
 ## 3. The real issue — it breaks "zero network surface"
 
@@ -56,9 +61,11 @@ Everything above is straightforward. The weight of this decision is the security
 posture, because Sampa deliberately has **no outbound network today**:
 
 1. **Network egress.** This is the first feature that opens a socket to the outside world.
-   It must be **opt-in** (`[ai] enabled` default `false`) and every request needs the same
-   treatment as any "send content to an external service" action — a **confirmation**,
-   because sending publishes.
+   It must be **opt-in** (`[ai] enabled` default `false`) and every request is a "send
+   content to an external service" action, because sending publishes. *As built*, the
+   consent is the overlay itself — it carries an explicit egress warning ("Enter sends your
+   text to the Claude API") and pressing Enter is the deliberate send, rather than a
+   separate confirm-modal per request.
 2. **The API key is a secret.** Never in the repo, never in `config.toml`. Read it from the
    environment (`ANTHROPIC_API_KEY`); the app never stores or prompts for it in plaintext.
    (Handling credentials in-app is exactly the class of action Sampa should push back to the
@@ -97,12 +104,12 @@ for privacy-sensitive users, with the hosted Claude API as an opt-in upgrade.
 
 Feasible and a natural feature — **but ship it opt-in, not as a v1 default.** Concretely:
 
-1. A headless `crates/ai` service (raw HTTPS to `POST /v1/messages`, structured
-   `{command, explanation}` output, model + endpoint from config), unit-tested with a mocked
-   transport. No GUI imports.
+1. A headless `crates/ai` service (raw HTTPS via `ureq` to `POST /v1/messages`, structured
+   `{command, explanation}` output, model + endpoint from config), unit-tested against a
+   fake `Transport`. No GUI imports.
 2. Off by default (`[ai] enabled = false`); API key from the environment, never stored.
-3. Minimal, **consented** context — typed request only unless the user explicitly attaches
-   output; confirm before each send.
+3. Minimal, **consented** context — typed request only unless the user opts into
+   `send_context`; the overlay's egress warning + Enter is the consent.
 4. Result **inserted at the prompt, never auto-run** (reuse the §10.1/§13 boundary); the
    preview gate still governs any subsequent run.
 5. Make `endpoint` configurable so a **local model** preserves the zero-third-party-egress
@@ -111,3 +118,30 @@ Feasible and a natural feature — **but ship it opt-in, not as a v1 default.** 
 Treat it as an M6/post-v1 optional capability. It is the first feature that trades Sampa's
 zero-network-surface guarantee for functionality, so the guardrails above are the feature —
 the API call itself is the easy part.
+
+## 6. As-built: enabling it & the credential-wiring gotchas
+
+Getting the feature *running* turned out to be entirely about the environment, since the
+key deliberately lives outside the app. The traps below cost the most time in practice — a
+key concern anyone enabling this will hit:
+
+- **The backend reads the key from the *process* environment**, not from a tab's shell.
+  `suggest_command` calls `std::env::var("ANTHROPIC_API_KEY")` in the Rust process, whose
+  environment is fixed **at launch** from the shell that started Sampa. Sourcing an env file
+  *inside* a running Sampa tab does nothing for the backend. **Launch Sampa from a shell
+  that already has the key exported.**
+- **The variable must be `export`ed, not just set.** A bare `ANTHROPIC_API_KEY=…` line in a
+  sourced file is a *shell-local* variable that child processes don't inherit — `echo
+  "${#ANTHROPIC_API_KEY}"` shows it, but `env | grep` (and the launched app) don't. Use
+  `export ANTHROPIC_API_KEY=…` (or `set -a; source file; set +a`). Verify with
+  `env | grep -c ANTHROPIC_API_KEY` (should be `1`), not `echo` — `env` lists exported vars only.
+- **`ZDOTDIR` decides which rc file zsh reads.** If it's set (common with powerlevel10k),
+  `~/.zshrc` is ignored and `$ZDOTDIR/.zshrc` is the real file. Put the source line there.
+- **A running process can't pick up a later export** — after fixing any of the above, fully
+  relaunch Sampa from a fresh shell.
+
+Recommended shape: keep the secret in a private `~/.config/sampa/sampa.env` (`chmod 600`,
+`export ANTHROPIC_API_KEY=…`, outside any repo), sourced from the correct zsh rc so every
+new shell — and any Sampa launched from it — has it. **The key never goes in `config.toml`
+or the repo.** A key pasted anywhere shared (chat, a tracked dotfile) should be considered
+burned — rotate it.
