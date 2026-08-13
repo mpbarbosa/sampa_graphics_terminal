@@ -235,10 +235,9 @@ pub fn parse_aux_block(block: &str) -> Option<Vec<AuxRow>> {
     lines.map(parse_aux_row).collect()
 }
 
-/// Full level-1a decoration of a `ps aux` block: parse, drop `VSZ`, elide zeros, format
-/// sizes, and fold bracketed kernel threads into a count. `None` ⇒ caller shows raw bytes.
-pub fn decorate_quiet(block: &str) -> Option<Quiet> {
-    let rows = parse_aux_block(block)?;
+/// Build the 1a decorated model from parsed rows: drop `VSZ`, elide zeros, format sizes,
+/// and fold bracketed kernel threads into a count.
+fn build_quiet(rows: Vec<AuxRow>) -> Quiet {
     let kernel_count = rows.iter().filter(|r| r.is_kernel).count();
     let quiet_rows = rows
         .into_iter()
@@ -259,10 +258,42 @@ pub fn decorate_quiet(block: &str) -> Option<Quiet> {
             mem_val: r.mem,
         })
         .collect();
-    Some(Quiet {
+    Quiet {
         rows: quiet_rows,
         kernel_count,
-    })
+    }
+}
+
+/// Full level-1a decoration of a **clean** `ps aux` block (header first, every following
+/// line a data row). Fails safe: `None` on any header mismatch or malformed row (spec §3).
+/// Use this for a captured-stream block whose bounds are known exactly.
+pub fn decorate_quiet(block: &str) -> Option<Quiet> {
+    Some(build_quiet(parse_aux_block(block)?))
+}
+
+/// Decorate a `ps aux` table found **anywhere inside a scrollback scrape**, where the
+/// exact bounds aren't known. Unlike [`decorate_quiet`], leading noise before the header
+/// (prompt, the typed command) and trailing noise after the last row (the next prompt)
+/// are tolerated: locate the first `aux` header line, then parse consecutive data rows and
+/// **stop** at the first line that isn't one (a blank line or the returned prompt). This
+/// is the entry point for the manual, buffer-scrape trigger. `None` if no `aux` header is
+/// present or no rows follow it — the caller then leaves the raw output untouched.
+pub fn decorate_scrollback(block: &str) -> Option<Quiet> {
+    let lines: Vec<&str> = block.lines().collect();
+    let header_at = lines
+        .iter()
+        .position(|l| header_kind(l) == Some(HeaderKind::Aux))?;
+    let mut rows = Vec::new();
+    for line in &lines[header_at + 1..] {
+        match parse_aux_row(line) {
+            Some(r) => rows.push(r),
+            None => break, // end of the table (blank line, next prompt, …)
+        }
+    }
+    if rows.is_empty() {
+        return None;
+    }
+    Some(build_quiet(rows))
 }
 
 #[cfg(test)]
@@ -386,6 +417,25 @@ root    13  0.0  0.0      0     0 ?        S    ago11    0:01 [ksoftirqd/0]\n";
             q.kernel_summary().as_deref(),
             Some("… 2 kernel threads hidden (0.0% cpu, 0.0% mem) — ps aux --kernel to show")
         );
+    }
+
+    #[test]
+    fn scrollback_tolerates_surrounding_noise() {
+        // As scraped from the terminal: a prompt + the typed command before the header,
+        // and the returned prompt after the last row.
+        let scraped = format!(
+            "mp@host ~/proj % ps aux\n{BLOCK}mp@host ~/proj % "
+        );
+        let q = decorate_scrollback(&scraped).unwrap();
+        assert_eq!(q.kernel_count, 2);
+        assert_eq!(q.rows.len(), 2);
+        assert_eq!(q.rows[0].pid, "1");
+        assert_eq!(q.rows[1].rss, "961.2M");
+
+        // No ps header anywhere → nothing to decorate.
+        assert!(decorate_scrollback("just some\nrandom output\n").is_none());
+        // Header but no rows follow → None.
+        assert!(decorate_scrollback(&format!("{AUX_HEADER_LINE}\nmp@host % ")).is_none());
     }
 
     #[test]

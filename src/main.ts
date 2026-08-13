@@ -27,6 +27,32 @@ interface Config {
   clipboard: { osc52_write: "ask" | "allow" | "deny" };
   features: { palette: boolean; man: boolean; preview: boolean };
   ai: { enabled: boolean; model: string; endpoint: string; send_context: boolean };
+  enhance: {
+    ps: "off" | "quiet" | "bars" | "inspector";
+    min_width: number;
+    min_width_bars: number;
+    min_width_inspector: number;
+  };
+}
+
+// The decorated `ps` model returned by the `decorate_ps` bridge command.
+interface PsRow {
+  pid: string;
+  user: string;
+  cpu: string;
+  mem: string;
+  rss: string;
+  start: string;
+  command: string;
+  cpu_val: number;
+  mem_val: number;
+}
+interface PsDecorated {
+  level: "quiet" | "bars" | "inspector";
+  columns: string[];
+  rows: PsRow[];
+  kernel_count: number;
+  kernel_summary: string | null;
 }
 
 // Escape-sequence hardening (§13). Terminal output is untrusted: a window/tab title
@@ -754,6 +780,7 @@ const HELP_ACTIONS: Array<[string, string]> = [
   ["palette", "Command palette"],
   ["toggle_man", "Toggle man-page panel"],
   ["toggle_preview", "Toggle command preview"],
+  ["enhance_ps", "Enhance last ps output"],
   ["zoom_in", "Zoom in"],
   ["zoom_out", "Zoom out"],
   ["zoom_reset", "Reset zoom"],
@@ -1074,6 +1101,140 @@ document.getElementById("preview-close")!.addEventListener("click", () => {
   hidePreview();
 });
 
+// ── ps(1) output enhancement panel (Ctrl+Shift+E / [enhance] ps) ──────────────
+// Manual trigger: after running `ps aux`, press the key to decorate the most recent
+// ps table (scraped from the terminal buffer) into a panel — dim zeros, size units,
+// kernel threads folded. The raw output stays byte-identical in the scrollback; the
+// gate + decoration are authoritative in the core (decorate_ps). Levels bars/inspector
+// reuse the same model; only 1a is rendered today.
+const psPanel = document.getElementById("pspanel")!;
+const psTitle = document.getElementById("pspanel-title")!;
+const psThead = document.querySelector("#pspanel-table thead")!;
+const psTbody = document.querySelector("#pspanel-table tbody")!;
+const psFold = document.getElementById("pspanel-fold")!;
+
+// The exact `ps aux` header, used to locate the most recent table in the scrollback.
+const PS_AUX_HEADER = [
+  "USER", "PID", "%CPU", "%MEM", "VSZ", "RSS", "TTY", "STAT", "START", "TIME", "COMMAND",
+];
+// Columns whose cells read left-to-right; the numeric columns stay right-aligned.
+const PS_LEFT = new Set(["PID", "USER", "START", "COMMAND"]);
+
+function hidePs(): void {
+  if (psPanel.hidden) return;
+  psPanel.hidden = true;
+  refitActive();
+}
+
+// Reconstruct logical lines from the xterm buffer, joining rows xterm marked as wrapped
+// so a ps row wider than the terminal isn't split mid-field.
+function scrapeLogicalLines(term: Terminal): string[] {
+  const buf = term.buffer.active;
+  const lines: string[] = [];
+  let cur = "";
+  let started = false;
+  for (let i = 0; i < buf.length; i++) {
+    const line = buf.getLine(i);
+    if (!line) continue;
+    const text = line.translateToString(true);
+    if (line.isWrapped) {
+      cur += text;
+    } else {
+      if (started) lines.push(cur);
+      cur = text;
+      started = true;
+    }
+  }
+  if (started) lines.push(cur);
+  return lines;
+}
+
+// Slice from the LAST `ps aux` header to the end of the buffer — the most recent run.
+// Returns null when no ps table is present.
+function lastPsBlock(term: Terminal): string | null {
+  const lines = scrapeLogicalLines(term);
+  let header = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const toks = lines[i].trim().split(/\s+/);
+    if (toks.length === PS_AUX_HEADER.length && toks.every((t, j) => t === PS_AUX_HEADER[j])) {
+      header = i;
+      break;
+    }
+  }
+  return header < 0 ? null : lines.slice(header).join("\n");
+}
+
+// Colour band for a %CPU/%MEM value (spec §7) — relative, redundant with position.
+function psBand(v: number): string {
+  if (v === 0) return "ps-zero";
+  if (v < 1) return "ps-low";
+  if (v < 5) return "ps-mid";
+  if (v < 10) return "ps-high";
+  return "ps-crit";
+}
+
+function renderPs(model: PsDecorated): void {
+  // Header row.
+  psThead.replaceChildren();
+  const htr = document.createElement("tr");
+  for (const col of model.columns) {
+    const th = document.createElement("th");
+    th.textContent = col;
+    if (PS_LEFT.has(col)) th.className = col === "COMMAND" ? "ps-cmd" : "ps-l";
+    htr.appendChild(th);
+  }
+  psThead.appendChild(htr);
+
+  // Data rows. textContent throughout — command text is untrusted, never innerHTML.
+  psTbody.replaceChildren();
+  for (const r of model.rows) {
+    const tr = document.createElement("tr");
+    const cell = (text: string, cls?: string) => {
+      const td = document.createElement("td");
+      td.textContent = text;
+      if (cls) td.className = cls;
+      tr.appendChild(td);
+      return td;
+    };
+    cell(r.pid, "ps-l");
+    cell(r.user, "ps-l");
+    cell(r.cpu, r.cpu === "–" ? "ps-zero" : psBand(r.cpu_val));
+    cell(r.mem, r.mem === "–" ? "ps-zero" : psBand(r.mem_val));
+    cell(r.rss, r.rss === "–" ? "ps-zero" : undefined);
+    cell(r.start, "ps-l");
+    const cmd = cell(r.command, "ps-cmd");
+    cmd.title = r.command; // full command on hover (COMMAND is ellipsised)
+    psTbody.appendChild(tr);
+  }
+  psFold.textContent = model.kernel_summary ?? "";
+}
+
+async function enhancePs(): Promise<void> {
+  // Off => feature disabled; toggle closed if already open.
+  if (currentCfg.enhance.ps === "off") return;
+  if (!psPanel.hidden) {
+    hidePs();
+    return;
+  }
+  const t = activeTab();
+  if (!t) return;
+  const block = lastPsBlock(t.term);
+  if (!block) return; // no ps output to decorate — leave the terminal as-is
+  const model = await invoke<PsDecorated | null>("decorate_ps", {
+    block,
+    cols: t.term.cols,
+  });
+  if (!model) return; // core declined (too narrow, unparseable) — raw output stands
+  const shown = model.rows.length + (model.kernel_count ? model.kernel_count : 0);
+  psTitle.textContent = `Processes — ${model.rows.length} shown${
+    model.kernel_count ? `, ${model.kernel_count} kernel folded` : ""
+  } (${shown} total)`;
+  renderPs(model);
+  psPanel.hidden = false;
+  refitActive();
+}
+document.getElementById("pspanel-close")!.addEventListener("click", hidePs);
+
 // ── Copy / paste ─────────────────────────────────────────────────────────────
 function doCopy(): void {
   const sel = activeTab()?.term.getSelection();
@@ -1172,6 +1333,7 @@ function rebuildBindings(): void {
     [parseChord(kb.zoom_reset), () => zoom(null)],
     [parseChord(kb.help), toggleHelp],
     [parseChord(kb.ai), openAi],
+    [parseChord(kb.enhance_ps), () => void enhancePs()],
   ];
 }
 rebuildBindings();
@@ -1186,6 +1348,13 @@ document.addEventListener(
       document.activeElement === aiInput
     )
       return;
+    // Esc closes the ps panel when it's the frontmost thing (it has no input of its own).
+    if (e.key === "Escape" && !psPanel.hidden) {
+      e.preventDefault();
+      e.stopPropagation();
+      hidePs();
+      return;
+    }
     for (const [chord, fn] of bindings) {
       if (chordMatches(chord, e)) {
         e.preventDefault();
