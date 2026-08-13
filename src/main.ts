@@ -42,6 +42,7 @@ interface PsRow {
   cpu: string;
   mem: string;
   rss: string;
+  rss_kb: number;
   start: string;
   command: string;
   cpu_val: number;
@@ -1122,6 +1123,13 @@ const psTitle = document.getElementById("pspanel-title")!;
 const psThead = document.querySelector("#pspanel-table thead")!;
 const psTbody = document.querySelector("#pspanel-table tbody")!;
 const psFold = document.getElementById("pspanel-fold")!;
+const psBody = document.getElementById("pspanel-body")!;
+
+// The decorated model currently shown, plus the live sort key (spec §5 — c/m/p re-sort
+// without re-running the command). null ⇒ ps's native order.
+let psModel: PsDecorated | null = null;
+type PsSort = "cpu" | "mem" | "pid";
+let psSort: PsSort | null = null;
 
 // The exact `ps aux` header, used to locate the most recent table in the scrollback.
 const PS_AUX_HEADER = [
@@ -1133,8 +1141,38 @@ const PS_LEFT = new Set(["PID", "USER", "START", "COMMAND"]);
 function hidePs(): void {
   if (psPanel.hidden) return;
   psPanel.hidden = true;
+  psModel = null;
   refitActive();
 }
+
+// Reorder a decorated model by the live sort key, keeping the parallel bars[] in lockstep.
+// Returns a shallow copy; the original (ps-native order) is preserved in psModel.
+function sortedPsModel(m: PsDecorated, key: PsSort): PsDecorated {
+  const idx = m.rows.map((_, i) => i);
+  const cmp =
+    key === "pid"
+      ? (a: number, b: number) => Number(m.rows[a].pid) - Number(m.rows[b].pid)
+      : key === "mem"
+        ? (a: number, b: number) => m.rows[b].rss_kb - m.rows[a].rss_kb
+        : (a: number, b: number) => m.rows[b].cpu_val - m.rows[a].cpu_val;
+  idx.sort(cmp);
+  return {
+    ...m,
+    rows: idx.map((i) => m.rows[i]),
+    bars: m.bars.length ? idx.map((i) => m.bars[i]) : [],
+  };
+}
+
+// Apply the current sort (if any) and repaint, refreshing the title's sort hint.
+function repaintPs(): void {
+  if (!psModel) return;
+  const view = psSort ? sortedPsModel(psModel, psSort) : psModel;
+  renderPs(view);
+  const sortNote = psSort ? ` · sorted by ${psSort}` : "";
+  psTitle.textContent = `${psTitleBase}${sortNote}  (c/m/p sort)`;
+}
+
+let psTitleBase = "Processes";
 
 // Reconstruct logical lines from the xterm buffer, joining rows xterm marked as wrapped
 // so a ps row wider than the terminal isn't split mid-field.
@@ -1258,14 +1296,28 @@ async function enhancePs(): Promise<void> {
   });
   if (!model) return; // core declined (too narrow, unparseable) — raw output stands
   const shown = model.rows.length + (model.kernel_count ? model.kernel_count : 0);
-  psTitle.textContent = `Processes — ${model.rows.length} shown${
+  psTitleBase = `Processes — ${model.rows.length} shown${
     model.kernel_count ? `, ${model.kernel_count} kernel folded` : ""
   } (${shown} total)`;
-  renderPs(model);
+  psModel = model;
+  psSort = null; // start in ps's native order
+  repaintPs();
   psPanel.hidden = false;
   refitActive();
+  psBody.focus(); // so c/m/p/Esc go to the panel, not the terminal
 }
 document.getElementById("pspanel-close")!.addEventListener("click", hidePs);
+
+// Live sort (spec §5): c/m/p re-sort the shown rows without re-running the command.
+psBody.addEventListener("keydown", (e) => {
+  if (e.ctrlKey || e.altKey || e.metaKey) return; // leave chords to the global dispatcher
+  const key =
+    e.key === "c" ? "cpu" : e.key === "m" ? "mem" : e.key === "p" ? "pid" : null;
+  if (!key) return;
+  e.preventDefault();
+  psSort = key;
+  repaintPs();
+});
 
 // ── Copy / paste ─────────────────────────────────────────────────────────────
 function doCopy(): void {
