@@ -332,6 +332,65 @@ pub fn group_rows(rows: &[QuietRow]) -> Vec<GroupView> {
         .collect()
 }
 
+/// The `ps -o` field list the enrich query requests, so the bridge and [`parse_enrich`]
+/// agree on the column order. Trailing `=` suppresses the header (one clean data line per
+/// process): pid, parent pid, thread count, full state code, elapsed seconds.
+pub const ENRICH_FORMAT: &str = "pid=,ppid=,nlwp=,stat=,etimes=";
+
+/// Per-process detail the scraped `ps aux` table doesn't carry (spec §6 detail pane),
+/// obtained by a supplementary read-only `ps` query keyed on PID.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PsDetail {
+    pub pid: u32,
+    pub ppid: u32,
+    pub threads: u32,
+    /// Raw `ps` state code (e.g. `Ss`, `Sl`, `R+`).
+    pub state: String,
+    /// Human expansion of the state's first letter (e.g. "sleeping").
+    pub state_long: String,
+    /// Seconds since the process started (the frontend derives absolute start = now − this).
+    pub etimes: u64,
+}
+
+/// Expand a `ps` STAT code's leading letter into a word (spec §6 "full state").
+pub fn describe_state(stat: &str) -> String {
+    match stat.chars().next() {
+        Some('R') => "running",
+        Some('S') => "sleeping",
+        Some('D') => "uninterruptible sleep",
+        Some('I') => "idle",
+        Some('T') => "stopped",
+        Some('t') => "traced",
+        Some('Z') => "zombie",
+        Some('X') => "dead",
+        _ => "unknown",
+    }
+    .to_string()
+}
+
+/// Parse the output of `ps -o `[`ENRICH_FORMAT`]` -p …` into per-process details. Each line
+/// is `pid ppid nlwp stat etimes`; a malformed line is skipped (enrich is best-effort — a
+/// process may exit between the scrape and the query), never aborting the batch.
+pub fn parse_enrich(output: &str) -> Vec<PsDetail> {
+    output
+        .lines()
+        .filter_map(|line| {
+            let f: Vec<&str> = line.split_whitespace().collect();
+            if f.len() != 5 {
+                return None;
+            }
+            Some(PsDetail {
+                pid: f[0].parse().ok()?,
+                ppid: f[1].parse().ok()?,
+                threads: f[2].parse().ok()?,
+                state: f[3].to_string(),
+                state_long: describe_state(f[3]),
+                etimes: f[4].parse().ok()?,
+            })
+        })
+        .collect()
+}
+
 /// Elide an exact-zero measurement to a dim rule (spec §4 "zero elision"): exact zero is
 /// the *absence* of a measurement, not a measurement. Non-zero keeps one decimal.
 fn elide_percent(v: f32) -> String {
@@ -516,6 +575,27 @@ root    13  0.0  0.0      0     0 ?        S    ago11    0:01 [ksoftirqd/0]\n";
         assert!(!is_kernel_command("/sbin/init splash"));
         assert!(!is_kernel_command("node [not a kernel] thing")); // doesn't start with '['
         assert!(!is_kernel_command("[")); // single char, not a bracketed pair
+    }
+
+    #[test]
+    fn enrich_parse() {
+        // As `ps -o pid=,ppid=,nlwp=,stat=,etimes= -p 1,3140` prints it.
+        let out = "      1       0    1 Ss     128594\n   3140    2411   11 Sl      2480\n";
+        let d = parse_enrich(out);
+        assert_eq!(d.len(), 2);
+        assert_eq!(d[0].pid, 1);
+        assert_eq!(d[0].ppid, 0);
+        assert_eq!(d[0].threads, 1);
+        assert_eq!(d[0].state, "Ss");
+        assert_eq!(d[0].state_long, "sleeping");
+        assert_eq!(d[0].etimes, 128594);
+        assert_eq!(d[1].pid, 3140);
+        assert_eq!(d[1].threads, 11);
+        assert_eq!(d[1].state_long, "sleeping");
+        // Malformed / short lines are skipped, not fatal.
+        assert!(parse_enrich("garbage\n\n42 only two\n").is_empty());
+        assert_eq!(describe_state("R+"), "running");
+        assert_eq!(describe_state("Zl"), "zombie");
     }
 
     #[test]

@@ -408,6 +408,32 @@ fn decorate_ps(config: State<'_, ConfigState>, block: String, cols: u16) -> Opti
     })
 }
 
+/// The inspector detail-pane enrichment (spec §6): run a **read-only** `ps` query for the
+/// given PIDs to get PPID / thread count / full state / elapsed time — fields the scraped
+/// `ps aux` table doesn't carry. `ps` is executed directly (no shell) with a fixed,
+/// output-only format and numeric PIDs, so nothing the frontend sends is interpolated into
+/// a shell; stdin is closed and the call is bounded. Best-effort: a process that has exited
+/// since the scrape is simply absent from the result. Returns `[]` on any spawn failure.
+#[tauri::command]
+fn ps_enrich(pids: Vec<u32>) -> Vec<sampa_ps_decorate::PsDetail> {
+    if pids.is_empty() {
+        return Vec::new();
+    }
+    let list = pids
+        .iter()
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join(",");
+    let out = std::process::Command::new("ps")
+        .args(["-o", sampa_ps_decorate::ENRICH_FORMAT, "-p", &list])
+        .stdin(std::process::Stdio::null())
+        .output();
+    match out {
+        Ok(o) => sampa_ps_decorate::parse_enrich(&String::from_utf8_lossy(&o.stdout)),
+        Err(_) => Vec::new(),
+    }
+}
+
 /// Quit the app (used when the last tab is closed).
 #[tauri::command]
 fn quit_app(app: tauri::AppHandle) {
@@ -619,6 +645,7 @@ pub fn run() {
             render_man,
             render_preview,
             decorate_ps,
+            ps_enrich,
             open_url,
             suggest_command,
             quit_app,
