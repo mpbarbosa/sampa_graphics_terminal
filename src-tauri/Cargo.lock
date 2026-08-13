@@ -2693,6 +2693,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "sampa-ps-decorate"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "sampa-shellint"
 version = "0.1.0"
 
@@ -2709,6 +2716,7 @@ dependencies = [
  "sampa-man",
  "sampa-palette",
  "sampa-preview",
+ "sampa-ps-decorate",
  "sampa-shellint",
  "serde",
  "serde_json",

@@ -7,5 +7,8 @@ license = "MIT"
 
 # Pure, GUI-free core — same rule as pty-core/config/preview: no Tauri/webview
 # imports. The parser fails safe to raw passthrough (returns None) on any header
-# mismatch or malformed row, so a non-`ps` stream is never mangled. std-only.
+# mismatch or malformed row, so a non-`ps` stream is never mangled. serde is only
+# used to derive the output model so the bridge can hand it across IPC unchanged
+# (same as config/ai) — no runtime/GUI coupling.
 [dependencies]
+serde = { version = "1", features = ["derive"] }

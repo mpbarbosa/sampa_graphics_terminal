@@ -22,6 +22,43 @@
 //! clock and a locale and is deferred; the raw `START` field is carried through so a
 //! later pass can rewrite it. Levels 1b/1c (bars, inspector) build on this model.
 
+use serde::{Deserialize, Serialize};
+
+/// The effective enhancement level (spec §3). Mirrors `sampa-config`'s `PsEnhance`, but
+/// kept here so this crate stays independent of `config` — the bridge maps between them.
+/// Higher levels build on lower ones; [`resolve_level`] steps down on narrow terminals.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Level {
+    Off,
+    Quiet,
+    Bars,
+    Inspector,
+}
+
+/// Per-level minimum terminal widths (spec §3). Below `min_width` nothing is enhanced;
+/// each richer level needs its own threshold or it falls back one level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WidthThresholds {
+    pub min_width: u16,
+    pub min_width_bars: u16,
+    pub min_width_inspector: u16,
+}
+
+/// Resolve the level actually rendered, after width fallback (spec §3): below `min_width`
+/// nothing is enhanced; otherwise each level steps down one when the terminal is narrower
+/// than that level's threshold (inspector → bars → quiet).
+pub fn resolve_level(configured: Level, cols: u16, t: &WidthThresholds) -> Level {
+    if cols < t.min_width {
+        return Level::Off;
+    }
+    match configured {
+        Level::Inspector if cols < t.min_width_inspector => resolve_level(Level::Bars, cols, t),
+        Level::Bars if cols < t.min_width_bars => Level::Quiet,
+        other => other,
+    }
+}
+
 /// Which `ps` header we matched. Only [`HeaderKind::Aux`] is decorated in this slice;
 /// [`HeaderKind::Ef`] is recognised (so callers can gate) but passes through for now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,7 +100,7 @@ pub struct AuxRow {
 }
 
 /// A row after 1a decoration — display-ready cell strings for [`QUIET_COLUMNS`].
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct QuietRow {
     pub pid: String,
     pub user: String,
@@ -241,6 +278,30 @@ root     1  0.0  0.0  29164 19376 ?        Ss   ago11    0:11 /sbin/init splash\
 mp    3140 12.4  6.1 2100000 984320 ?      Sl   ago11   41:18 node /home/mp/vite dev --host\n\
 root     2  0.0  0.0      0     0 ?        S    ago11    0:00 [kthreadd]\n\
 root    13  0.0  0.0      0     0 ?        S    ago11    0:01 [ksoftirqd/0]\n";
+
+    const THRESH: WidthThresholds = WidthThresholds {
+        min_width: 80,
+        min_width_bars: 100,
+        min_width_inspector: 120,
+    };
+
+    #[test]
+    fn width_fallback() {
+        // Below the floor, nothing is enhanced regardless of the configured level.
+        assert_eq!(resolve_level(Level::Inspector, 79, &THRESH), Level::Off);
+        assert_eq!(resolve_level(Level::Quiet, 79, &THRESH), Level::Off);
+        // off stays off.
+        assert_eq!(resolve_level(Level::Off, 200, &THRESH), Level::Off);
+        // quiet holds from its floor up.
+        assert_eq!(resolve_level(Level::Quiet, 80, &THRESH), Level::Quiet);
+        // bars steps down to quiet below 100, holds at/above.
+        assert_eq!(resolve_level(Level::Bars, 99, &THRESH), Level::Quiet);
+        assert_eq!(resolve_level(Level::Bars, 100, &THRESH), Level::Bars);
+        // inspector steps down to bars below 120, and all the way to quiet below 100.
+        assert_eq!(resolve_level(Level::Inspector, 119, &THRESH), Level::Bars);
+        assert_eq!(resolve_level(Level::Inspector, 99, &THRESH), Level::Quiet);
+        assert_eq!(resolve_level(Level::Inspector, 120, &THRESH), Level::Inspector);
+    }
 
     #[test]
     fn header_signatures() {

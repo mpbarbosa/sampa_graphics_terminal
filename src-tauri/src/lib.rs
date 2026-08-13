@@ -23,7 +23,7 @@ use tauri::{Emitter, Manager, State};
 
 use pty_core::{PtyEvent, Sessions, SpawnConfig};
 use sampa_cli::CliArgs;
-use sampa_config::Config;
+use sampa_config::{Config, PsEnhance};
 use sampa_shellint::{OscScanner, ShellEvent};
 
 /// Per-session shell-integration state (DESIGN.md §5.6). Populated from OSC 7/133 in
@@ -322,6 +322,54 @@ fn render_preview(
     }
 }
 
+/// The decorated `ps` model sent to the frontend (docs/spec-ps-output-enhancement.md).
+/// `level` is the effective level after config + width gating, so the frontend renders
+/// the right richness; `rows` is the level-1a model (bars/inspector build on it).
+#[derive(Serialize)]
+struct PsDecorated {
+    level: sampa_ps_decorate::Level,
+    columns: &'static [&'static str],
+    rows: Vec<sampa_ps_decorate::QuietRow>,
+    kernel_count: usize,
+    kernel_summary: Option<String>,
+}
+
+/// `ps(1)` output enhancement (spec §3). Given a captured `ps` output `block` and the
+/// terminal width, return the decorated model — or `None` for **raw passthrough** when
+/// the feature is off, the width is below the floor, the header isn't a recognised `ps`
+/// signature, or any row is malformed. The gate is authoritative here in the core; the
+/// frontend only decides *when* to offer a block (it never sees piped/redirected output,
+/// which keeps non-interactive `ps` byte-identical). Not cached — output is point-in-time.
+#[tauri::command]
+fn decorate_ps(config: State<'_, ConfigState>, block: String, cols: u16) -> Option<PsDecorated> {
+    let enh = { config.current.lock().unwrap().enhance.clone() };
+    let configured = match enh.ps {
+        PsEnhance::Off => sampa_ps_decorate::Level::Off,
+        PsEnhance::Quiet => sampa_ps_decorate::Level::Quiet,
+        PsEnhance::Bars => sampa_ps_decorate::Level::Bars,
+        PsEnhance::Inspector => sampa_ps_decorate::Level::Inspector,
+    };
+    let thresholds = sampa_ps_decorate::WidthThresholds {
+        min_width: enh.min_width,
+        min_width_bars: enh.min_width_bars,
+        min_width_inspector: enh.min_width_inspector,
+    };
+    let level = sampa_ps_decorate::resolve_level(configured, cols, &thresholds);
+    if level == sampa_ps_decorate::Level::Off {
+        return None;
+    }
+    // Level 1a is the only renderer built; bars/inspector reuse the same decorated model
+    // and add interactivity on top, so we always compute the quiet model here.
+    let quiet = sampa_ps_decorate::decorate_quiet(&block)?;
+    Some(PsDecorated {
+        level,
+        columns: sampa_ps_decorate::QUIET_COLUMNS,
+        kernel_count: quiet.kernel_count,
+        kernel_summary: quiet.kernel_summary(),
+        rows: quiet.rows,
+    })
+}
+
 /// Quit the app (used when the last tab is closed).
 #[tauri::command]
 fn quit_app(app: tauri::AppHandle) {
@@ -532,6 +580,7 @@ pub fn run() {
             list_commands,
             render_man,
             render_preview,
+            decorate_ps,
             open_url,
             suggest_command,
             quit_app,
