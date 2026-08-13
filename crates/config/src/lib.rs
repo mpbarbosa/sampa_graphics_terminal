@@ -288,6 +288,7 @@ pub struct Keybindings {
     pub zoom_reset: String,
     pub help: String,
     pub ai: String,
+    pub enhance_ps: String,
 }
 
 impl Default for Keybindings {
@@ -307,6 +308,7 @@ impl Default for Keybindings {
             zoom_reset: "Ctrl+Shift+0".into(),
             help: "Ctrl+Shift+Slash".into(), // Ctrl+Shift+? on a US layout
             ai: "Ctrl+Shift+A".into(),       // ask the Claude-API command suggester
+            enhance_ps: "Ctrl+Shift+E".into(), // decorate the last ps output (spec §3)
         }
     }
 }
@@ -511,6 +513,7 @@ zoom_out = "Ctrl+Shift+Minus"
 zoom_reset = "Ctrl+Shift+0"
 help = "Ctrl+Shift+Slash"  # Ctrl+Shift+? — shows the shortcuts overlay
 ai = "Ctrl+Shift+A"        # ask the Claude-API command suggester (opt-in; see [ai])
+enhance_ps = "Ctrl+Shift+E"  # decorate the last `ps aux` output into a panel (see [enhance])
 
 [rendering]
 gpu = true          # WebGL renderer (falls back to canvas if unavailable)

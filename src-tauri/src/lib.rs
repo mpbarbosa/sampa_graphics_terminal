@@ -334,12 +334,12 @@ struct PsDecorated {
     kernel_summary: Option<String>,
 }
 
-/// `ps(1)` output enhancement (spec §3). Given a captured `ps` output `block` and the
-/// terminal width, return the decorated model — or `None` for **raw passthrough** when
-/// the feature is off, the width is below the floor, the header isn't a recognised `ps`
-/// signature, or any row is malformed. The gate is authoritative here in the core; the
-/// frontend only decides *when* to offer a block (it never sees piped/redirected output,
-/// which keeps non-interactive `ps` byte-identical). Not cached — output is point-in-time.
+/// `ps(1)` output enhancement (spec §3). Given a **scraped** `ps` output `block` (the
+/// terminal scrollback around a `ps aux` run) and the terminal width, return the decorated
+/// model — or `None` for raw passthrough when the feature is off, the width is below the
+/// floor, or no `aux` table is found in the block. Uses the tolerant scrollback parser
+/// (leading prompt / trailing prompt around the table are expected). The gate is
+/// authoritative here in the core. Not cached — `ps` output is point-in-time.
 #[tauri::command]
 fn decorate_ps(config: State<'_, ConfigState>, block: String, cols: u16) -> Option<PsDecorated> {
     let enh = { config.current.lock().unwrap().enhance.clone() };
@@ -360,7 +360,7 @@ fn decorate_ps(config: State<'_, ConfigState>, block: String, cols: u16) -> Opti
     }
     // Level 1a is the only renderer built; bars/inspector reuse the same decorated model
     // and add interactivity on top, so we always compute the quiet model here.
-    let quiet = sampa_ps_decorate::decorate_quiet(&block)?;
+    let quiet = sampa_ps_decorate::decorate_scrollback(&block)?;
     Some(PsDecorated {
         level,
         columns: sampa_ps_decorate::QUIET_COLUMNS,

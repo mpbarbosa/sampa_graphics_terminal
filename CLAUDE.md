@@ -28,6 +28,7 @@ cargo test  --manifest-path crates/man/Cargo.toml         # man validate/sanitiz
 cargo test  --manifest-path crates/preview/Cargo.toml     # preview allowlist gate (incl. filesystem rm-safety test)
 cargo test  --manifest-path crates/ai/Cargo.toml          # NL→command request-build/parse (fake transport; no network)
 cargo test  --manifest-path crates/ps-decorate/Cargo.toml # ps(1) header-match + 1a decorate (parser fails safe to raw)
+ps aux | cargo run --example decorate --manifest-path crates/ps-decorate/Cargo.toml  # eyeball the 1a decorator on live ps output
 cargo build --manifest-path src-tauri/Cargo.toml          # the Tauri app crate (needs GTK/webkit deps)
 
 # Throughput benchmarks (Phase 5.1, §14) — headless, print MiB/s + fail on a lenient floor:

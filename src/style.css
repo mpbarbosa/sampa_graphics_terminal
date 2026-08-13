@@ -188,6 +188,106 @@ body {
   tab-size: 8;
 }
 
+/* ps(1) output enhancement panel (Ctrl+Shift+E / [enhance] ps). A decorated table of
+   the last `ps aux`; raw output stays byte-identical in the terminal scrollback. */
+#pspanel {
+  flex: 0 0 auto;
+  max-height: 45%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: #16181f;
+  border-top: 1px solid #2a2e42;
+}
+#pspanel[hidden] {
+  display: none;
+}
+.pspanel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 10px;
+  border-bottom: 1px solid #2a2e42;
+  color: #7dcfff;
+  font: 11px ui-sans-serif, system-ui, sans-serif;
+}
+#pspanel-close {
+  border: none;
+  background: none;
+  color: #7a819e;
+  cursor: pointer;
+  font-size: 13px;
+}
+#pspanel-close:hover {
+  color: #c0caf5;
+}
+#pspanel-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 4px 0;
+}
+#pspanel-table {
+  border-collapse: collapse;
+  width: 100%;
+  color: #a9b1d6;
+  font: 12px ui-monospace, monospace;
+}
+#pspanel-table th {
+  text-align: right;
+  padding: 2px 12px;
+  color: #565f89;
+  font-weight: normal;
+  position: sticky;
+  top: 0;
+  background: #16181f;
+  border-bottom: 1px solid #2a2e42;
+}
+#pspanel-table td {
+  text-align: right;
+  padding: 1px 12px;
+  white-space: nowrap;
+}
+/* PID/USER/COMMAND read left-to-right; the numeric columns stay right-aligned. */
+#pspanel-table th.ps-l,
+#pspanel-table td.ps-l {
+  text-align: left;
+}
+#pspanel-table td.ps-cmd {
+  text-align: left;
+  width: 100%;
+  max-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #c0caf5;
+}
+#pspanel-table tbody tr:hover {
+  background: #1e2030;
+}
+/* Colour bands, thresholds relative per spec §7. Redundant with position, never sole. */
+.ps-zero {
+  color: #414868;
+} /* exact zero — no measurement */
+.ps-low {
+  color: #a9b1d6;
+} /* <1% — present, unremarkable */
+.ps-mid {
+  color: #9ece6a;
+} /* 1–5% — working normally */
+.ps-high {
+  color: #e0af68;
+} /* 5–10% — worth noticing */
+.ps-crit {
+  color: #f7768e;
+} /* >10% — the answer */
+#pspanel-fold {
+  padding: 4px 12px 6px;
+  color: #565f89;
+  font: 11px ui-monospace, monospace;
+}
+#pspanel-fold:empty {
+  display: none;
+}
+
 .term-pane {
   position: absolute;
   inset: 0;
