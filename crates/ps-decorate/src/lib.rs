@@ -220,6 +220,118 @@ pub fn bars_for(quiet: &Quiet) -> Vec<(String, String)> {
         .collect()
 }
 
+/// Provenance group for a process (spec §6 "grouping") — what it *belongs to*, so a flat
+/// list of 300 becomes six things a developer recognises. Derived here from the executable
+/// name / command; the frontend can refine with the process tree from the enrich query.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Group {
+    Dev,
+    Browser,
+    Desktop,
+    System,
+    Shell,
+    Other,
+}
+
+/// Fixed display order (spec §6): the things a developer most wants first.
+pub const GROUP_ORDER: &[Group] = &[
+    Group::Dev,
+    Group::Browser,
+    Group::Desktop,
+    Group::System,
+    Group::Shell,
+    Group::Other,
+];
+
+/// Keyword tables, matched against the lowercased command. Order of the checks below is
+/// deliberate: browser/dev/desktop win over the root→System fallback.
+const BROWSER_KW: &[&str] = &[
+    "firefox", "chrome", "chromium", "webkit", "epiphany", "brave", "vivaldi", "opera",
+    "web content", "gecko", "thunderbird",
+];
+const DEV_KW: &[&str] = &[
+    "node", "vite", "esbuild", "webpack", "python", "cargo", "rustc", "rust-analyzer",
+    "gopls", "gradle", "postgres", "mysqld", "redis", "docker", "podman", "containerd",
+    "clangd", "deno", "bun", "tsserver", "code", "ruby", "java",
+];
+const DESKTOP_KW: &[&str] = &[
+    "gnome", "xwayland", "xorg", "wayland", "kwin", "plasma", "mutter", "sway", "gdm",
+    "sddm", "pipewire", "pulseaudio", "wireplumber", "ibus", "fcitx", "kde", "xdg-",
+];
+const SHELL_EXE: &[&str] = &["bash", "zsh", "sh", "fish", "tmux", "screen", "ps", "dash"];
+
+/// Classify a process by its command and owning user (spec §6). Kernel threads are folded
+/// out before this runs, so there is no `Kernel` case here.
+pub fn classify(command: &str, user: &str) -> Group {
+    let cmd = command.to_lowercase();
+    let has = |kws: &[&str]| kws.iter().any(|k| cmd.contains(k));
+    // The executable basename (first token, after the last '/').
+    let exe = command
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .rsplit('/')
+        .next()
+        .unwrap_or("")
+        .to_lowercase();
+
+    if has(BROWSER_KW) {
+        Group::Browser
+    } else if has(DEV_KW) {
+        Group::Dev
+    } else if has(DESKTOP_KW) {
+        Group::Desktop
+    } else if SHELL_EXE.contains(&exe.as_str()) {
+        Group::Shell
+    } else if user == "root" || cmd.contains("systemd") || cmd.contains("dbus") {
+        Group::System
+    } else {
+        Group::Other
+    }
+}
+
+/// A provenance group with its member rows and subtotals (spec §6). `rows` holds indices
+/// into the `QuietRow` slice passed to [`group_rows`], in their original order.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GroupView {
+    pub group: Group,
+    pub rows: Vec<usize>,
+    pub count: usize,
+    /// Summed %CPU across the group — "what is my machine actually doing" at a glance.
+    pub cpu: f32,
+    /// Summed resident memory (KiB) across the group.
+    pub rss_kb: u64,
+}
+
+/// Bucket decorated rows into provenance groups with per-group CPU/RSS subtotals
+/// (spec §6), returned in [`GROUP_ORDER`]; empty groups are omitted.
+pub fn group_rows(rows: &[QuietRow]) -> Vec<GroupView> {
+    GROUP_ORDER
+        .iter()
+        .filter_map(|&g| {
+            let idx: Vec<usize> = rows
+                .iter()
+                .enumerate()
+                .filter(|(_, r)| classify(&r.command, &r.user) == g)
+                .map(|(i, _)| i)
+                .collect();
+            if idx.is_empty() {
+                return None;
+            }
+            let cpu = idx.iter().map(|&i| rows[i].cpu_val).sum();
+            let rss_kb = idx.iter().map(|&i| rows[i].rss_kb).sum();
+            Some(GroupView {
+                group: g,
+                count: idx.len(),
+                cpu,
+                rss_kb,
+                rows: idx,
+            })
+        })
+        .collect()
+}
+
 /// Elide an exact-zero measurement to a dim rule (spec §4 "zero elision"): exact zero is
 /// the *absence* of a measurement, not a measurement. Non-zero keeps one decimal.
 fn elide_percent(v: f32) -> String {
@@ -404,6 +516,44 @@ root    13  0.0  0.0      0     0 ?        S    ago11    0:01 [ksoftirqd/0]\n";
         assert!(!is_kernel_command("/sbin/init splash"));
         assert!(!is_kernel_command("node [not a kernel] thing")); // doesn't start with '['
         assert!(!is_kernel_command("[")); // single char, not a bracketed pair
+    }
+
+    #[test]
+    fn provenance_classify() {
+        assert_eq!(classify("/usr/lib/firefox/firefox", "mp"), Group::Browser);
+        assert_eq!(classify("Web Content (guia)", "mp"), Group::Browser);
+        assert_eq!(classify("node /home/mp/vite dev --host", "mp"), Group::Dev);
+        assert_eq!(classify("postgres: checkpointer", "postgres"), Group::Dev);
+        assert_eq!(classify("/usr/bin/gnome-shell", "gdm"), Group::Desktop);
+        assert_eq!(classify("bash", "mp"), Group::Shell);
+        assert_eq!(classify("-zsh", "mp"), Group::Other); // login shell dash-prefixed exe
+        assert_eq!(classify("/usr/lib/systemd/systemd-journald", "root"), Group::System);
+        assert_eq!(classify("/sbin/init splash", "root"), Group::System); // root fallback
+        assert_eq!(classify("some-random-thing", "mp"), Group::Other);
+    }
+
+    #[test]
+    fn grouping_with_subtotals() {
+        // A mixed block: browser (firefox), dev (node), shell (ps aux), system (init).
+        let block = format!(
+            "{AUX_HEADER_LINE}\n\
+mp     100  8.0  5.0 100 800000 ? Sl ago11 1:00 /usr/lib/firefox/firefox\n\
+mp     200 12.0  6.0 100 900000 ? Sl ago11 2:00 node vite dev\n\
+mp     300  0.0  0.0 100   3000 pts/0 R+ ago11 0:00 ps aux\n\
+root     1  0.0  0.0 100  19376 ? Ss ago11 0:11 /sbin/init splash\n"
+        );
+        let q = decorate_quiet(&block).unwrap();
+        let groups = group_rows(&q.rows);
+        // Order is GROUP_ORDER: Dev, Browser, Desktop, System, Shell, Other.
+        let names: Vec<Group> = groups.iter().map(|g| g.group).collect();
+        assert_eq!(names, vec![Group::Dev, Group::Browser, Group::System, Group::Shell]);
+        let dev = &groups[0];
+        assert_eq!(dev.count, 1);
+        assert_eq!(dev.cpu, 12.0); // node
+        assert_eq!(dev.rss_kb, 900000);
+        // Every shown row is placed in exactly one group.
+        let total: usize = groups.iter().map(|g| g.count).sum();
+        assert_eq!(total, q.rows.len());
     }
 
     #[test]
