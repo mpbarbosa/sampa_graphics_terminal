@@ -225,6 +225,10 @@ body {
   flex: 1 1 auto;
   overflow: auto;
   padding: 4px 0;
+  outline: none; /* focusable (tabindex) for c/m/p sort, but no focus ring */
+}
+#pspanel-body:focus-visible {
+  box-shadow: inset 0 0 0 1px #2a2e42;
 }
 #pspanel-table {
   border-collapse: collapse;

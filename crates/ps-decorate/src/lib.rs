@@ -109,6 +109,8 @@ pub struct QuietRow {
     pub mem: String,
     /// Human size (`18.9M`) or `"–"` when resident memory is zero.
     pub rss: String,
+    /// Raw resident size in KiB, so the frontend can sort memory by size (spec §5 sort).
+    pub rss_kb: u64,
     pub start: String,
     pub command: String,
     /// Carried so the frontend can pick the colour band (spec §7) without re-parsing.
@@ -299,6 +301,7 @@ fn build_quiet(rows: Vec<AuxRow>) -> Quiet {
             } else {
                 fmt_size_kb(r.rss)
             },
+            rss_kb: r.rss,
             start: r.start,
             command: r.command,
             cpu_val: r.cpu,
