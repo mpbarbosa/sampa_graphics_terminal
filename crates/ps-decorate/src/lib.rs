@@ -261,11 +261,34 @@ const DESKTOP_KW: &[&str] = &[
 ];
 const SHELL_EXE: &[&str] = &["bash", "zsh", "sh", "fish", "tmux", "screen", "ps", "dash"];
 
+/// Whether `kw` occurs in `cmd` (already lowercased) at a **word boundary**, so a keyword
+/// isn't matched inside an unrelated word: plain `contains` mis-tagged `--session=ubuntu`
+/// as `bun` (Dev) and `nodev` as `node`. The match must start at a non-alphanumeric
+/// boundary; trailing digits are allowed (so `python3` still matches `python`) but a
+/// trailing letter is not (so `dockerd` doesn't match `docker`, `nodev` doesn't match
+/// `node`). A keyword ending in a non-alphanumeric char (e.g. `xdg-`) is a prefix pattern,
+/// so its right side isn't boundary-checked.
+fn kw_at_boundary(cmd: &str, kw: &str) -> bool {
+    let bytes = cmd.as_bytes();
+    let prefix = !kw.as_bytes().last().is_some_and(u8::is_ascii_alphanumeric);
+    cmd.match_indices(kw).any(|(i, _)| {
+        let left = i == 0 || !bytes[i - 1].is_ascii_alphanumeric();
+        let right = prefix || {
+            let mut j = i + kw.len();
+            while j < bytes.len() && bytes[j].is_ascii_digit() {
+                j += 1;
+            }
+            j >= bytes.len() || !bytes[j].is_ascii_alphanumeric()
+        };
+        left && right
+    })
+}
+
 /// Classify a process by its command and owning user (spec §6). Kernel threads are folded
 /// out before this runs, so there is no `Kernel` case here.
 pub fn classify(command: &str, user: &str) -> Group {
     let cmd = command.to_lowercase();
-    let has = |kws: &[&str]| kws.iter().any(|k| cmd.contains(k));
+    let has = |kws: &[&str]| kws.iter().any(|k| kw_at_boundary(&cmd, k));
     // The executable basename (first token, after the last '/').
     let exe = command
         .split_whitespace()
@@ -610,6 +633,20 @@ root    13  0.0  0.0      0     0 ?        S    ago11    0:01 [ksoftirqd/0]\n";
         assert_eq!(classify("/usr/lib/systemd/systemd-journald", "root"), Group::System);
         assert_eq!(classify("/sbin/init splash", "root"), Group::System); // root fallback
         assert_eq!(classify("some-random-thing", "mp"), Group::Other);
+        // Word-boundary matching: a keyword inside an unrelated word must NOT match.
+        // "ubuntu" contains "bun", "nodev" contains "node" — both previously mis-tagged Dev.
+        assert_eq!(
+            classify("/usr/libexec/gdm-wayland-session /usr/bin/gnome-session --session=ubuntu", "mp"),
+            Group::Desktop,
+        );
+        assert_eq!(classify("/usr/bin/gnome-shell --mode=ubuntu", "mp"), Group::Desktop);
+        assert_eq!(classify("fusermount3 -o rw,nosuid,nodev,fsname=portal", "root"), Group::System);
+        assert_eq!(classify("/home/mp/.local/bundles/current/jetbrainsd run", "mp"), Group::Other);
+        // Trailing digits still match (pythonN is python); prefix keywords (xdg-) still match.
+        assert_eq!(classify("/usr/bin/python3 /usr/bin/blueman-applet", "mp"), Group::Dev);
+        assert_eq!(classify("/usr/libexec/xdg-desktop-portal", "mp"), Group::Desktop);
+        // A trailing letter does not (dockerd ≠ docker), but the --containerd flag is a whole word.
+        assert_eq!(classify("/usr/bin/dockerd -H fd:// --containerd=/run/c.sock", "root"), Group::Dev);
     }
 
     #[test]
