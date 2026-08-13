@@ -20,14 +20,15 @@ fn main() {
             std::process::exit(1);
         }
         Some(q) => {
+            let bars = sampa_ps_decorate::bars_for(&q); // level 1b signal bars (spec §5)
             println!(
-                "{:>7}  {:<8} {:>5} {:>5} {:>8}  {:<8} COMMAND",
-                "PID", "USER", "%CPU", "%MEM", "RSS", "START"
+                "{:>7}  {:<8} {:>5} {:<8} {:>8}  {:<8} COMMAND",
+                "PID", "USER", "%CPU", "CPU", "RSS", "START"
             );
-            for r in &q.rows {
+            for (r, (cpu_bar, _mem_bar)) in q.rows.iter().zip(&bars) {
                 println!(
-                    "{:>7}  {:<8} {:>5} {:>5} {:>8}  {:<8} {}",
-                    r.pid, r.user, r.cpu, r.mem, r.rss, r.start, r.command
+                    "{:>7}  {:<8} {:>5} {:<8} {:>8}  {:<8} {}",
+                    r.pid, r.user, r.cpu, cpu_bar, r.rss, r.start, r.command
                 );
             }
             if let Some(s) = q.kernel_summary() {

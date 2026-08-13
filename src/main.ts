@@ -47,12 +47,22 @@ interface PsRow {
   cpu_val: number;
   mem_val: number;
 }
+interface PsBar {
+  cpu: string;
+  mem: string;
+}
 interface PsDecorated {
   level: "quiet" | "bars" | "inspector";
   columns: string[];
   rows: PsRow[];
   kernel_count: number;
   kernel_summary: string | null;
+  // Level 1b (spec §5): signal bars parallel to rows (empty at the quiet level), plus
+  // header denominators so a per-core-summed percentage has context.
+  bars: PsBar[];
+  cpu_total: number;
+  mem_total: number;
+  core_count: number;
 }
 
 // Escape-sequence hardening (§13). Terminal output is untrusted: a window/tab title
@@ -1174,12 +1184,22 @@ function psBand(v: number): string {
 }
 
 function renderPs(model: PsDecorated): void {
-  // Header row.
+  // Level 1b (spec §5): bars present ⇒ show magnitude bars + header denominators.
+  const bars = model.bars.length > 0;
+
+  // Header row. At the bars level the %CPU/%MEM headers carry the denominators so a
+  // per-core-summed percentage has context (e.g. "%CPU 32.7% of 800%").
   psThead.replaceChildren();
   const htr = document.createElement("tr");
   for (const col of model.columns) {
     const th = document.createElement("th");
-    th.textContent = col;
+    let label = col;
+    if (bars && col === "%CPU") {
+      label = `%CPU ${model.cpu_total.toFixed(1)}% of ${model.core_count * 100}%`;
+    } else if (bars && col === "%MEM") {
+      label = `%MEM ${model.mem_total.toFixed(1)}%`;
+    }
+    th.textContent = label;
     if (PS_LEFT.has(col)) th.className = col === "COMMAND" ? "ps-cmd" : "ps-l";
     htr.appendChild(th);
   }
@@ -1187,7 +1207,7 @@ function renderPs(model: PsDecorated): void {
 
   // Data rows. textContent throughout — command text is untrusted, never innerHTML.
   psTbody.replaceChildren();
-  for (const r of model.rows) {
+  model.rows.forEach((r, i) => {
     const tr = document.createElement("tr");
     const cell = (text: string, cls?: string) => {
       const td = document.createElement("td");
@@ -1196,16 +1216,28 @@ function renderPs(model: PsDecorated): void {
       tr.appendChild(td);
       return td;
     };
+    // %CPU/%MEM cell: at the bars level, a fixed-width value + the block-glyph bar (in a
+    // pre span so its space-padding aligns bars across rows for length comparison).
+    const metric = (value: string, band: string, barStr: string | undefined) => {
+      if (barStr === undefined) {
+        cell(value, band);
+        return;
+      }
+      const td = document.createElement("td");
+      td.className = `${band} ps-metric`;
+      td.textContent = `${value.padStart(5)} ${barStr}`;
+      tr.appendChild(td);
+    };
     cell(r.pid, "ps-l");
     cell(r.user, "ps-l");
-    cell(r.cpu, r.cpu === "–" ? "ps-zero" : psBand(r.cpu_val));
-    cell(r.mem, r.mem === "–" ? "ps-zero" : psBand(r.mem_val));
+    metric(r.cpu, r.cpu === "–" ? "ps-zero" : psBand(r.cpu_val), bars ? model.bars[i].cpu : undefined);
+    metric(r.mem, r.mem === "–" ? "ps-zero" : psBand(r.mem_val), bars ? model.bars[i].mem : undefined);
     cell(r.rss, r.rss === "–" ? "ps-zero" : undefined);
     cell(r.start, "ps-l");
     const cmd = cell(r.command, "ps-cmd");
     cmd.title = r.command; // full command on hover (COMMAND is ellipsised)
     psTbody.appendChild(tr);
-  }
+  });
   psFold.textContent = model.kernel_summary ?? "";
 }
 

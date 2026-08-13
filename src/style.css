@@ -252,6 +252,12 @@ body {
 #pspanel-table td.ps-l {
   text-align: left;
 }
+/* Level 1b metric cell: fixed-width value + block-glyph bar. `pre` preserves the value's
+   pad and the bar's trailing spaces so bars line up across rows for length comparison. */
+#pspanel-table td.ps-metric {
+  text-align: left;
+  white-space: pre;
+}
 #pspanel-table td.ps-cmd {
   text-align: left;
   width: 100%;

@@ -325,6 +325,13 @@ fn render_preview(
 /// The decorated `ps` model sent to the frontend (docs/spec-ps-output-enhancement.md).
 /// `level` is the effective level after config + width gating, so the frontend renders
 /// the right richness; `rows` is the level-1a model (bars/inspector build on it).
+/// One row's CPU/MEM signal bars (spec §5), parallel to `PsDecorated.rows`.
+#[derive(Serialize)]
+struct PsBar {
+    cpu: String,
+    mem: String,
+}
+
 #[derive(Serialize)]
 struct PsDecorated {
     level: sampa_ps_decorate::Level,
@@ -332,6 +339,13 @@ struct PsDecorated {
     rows: Vec<sampa_ps_decorate::QuietRow>,
     kernel_count: usize,
     kernel_summary: Option<String>,
+    /// Signal bars, one per row (empty at the `quiet` level). Level 1b (spec §5).
+    bars: Vec<PsBar>,
+    /// Header denominators (spec §5): summed %CPU over `core_count * 100`, summed %MEM.
+    /// They tell the reader percentages are per-core-summed so a 700% row isn't a bug.
+    cpu_total: f32,
+    mem_total: f32,
+    core_count: usize,
 }
 
 /// `ps(1)` output enhancement (spec §3). Given a **scraped** `ps` output `block` (the
@@ -358,15 +372,39 @@ fn decorate_ps(config: State<'_, ConfigState>, block: String, cols: u16) -> Opti
     if level == sampa_ps_decorate::Level::Off {
         return None;
     }
-    // Level 1a is the only renderer built; bars/inspector reuse the same decorated model
-    // and add interactivity on top, so we always compute the quiet model here.
+    // The 1a decorated model underlies every level; bars/inspector add to it.
     let quiet = sampa_ps_decorate::decorate_scrollback(&block)?;
+
+    // Level 1b (spec §5): signal bars + header denominators. Computed only when the
+    // effective level is bars or inspector; `quiet` leaves `bars` empty.
+    let with_bars = matches!(
+        level,
+        sampa_ps_decorate::Level::Bars | sampa_ps_decorate::Level::Inspector
+    );
+    let bars = if with_bars {
+        sampa_ps_decorate::bars_for(&quiet)
+            .into_iter()
+            .map(|(cpu, mem)| PsBar { cpu, mem })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let cpu_total: f32 = quiet.rows.iter().map(|r| r.cpu_val).sum();
+    let mem_total: f32 = quiet.rows.iter().map(|r| r.mem_val).sum();
+    let core_count = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
+
     Some(PsDecorated {
         level,
         columns: sampa_ps_decorate::QUIET_COLUMNS,
         kernel_count: quiet.kernel_count,
         kernel_summary: quiet.kernel_summary(),
         rows: quiet.rows,
+        bars,
+        cpu_total,
+        mem_total,
+        core_count,
     })
 }
 

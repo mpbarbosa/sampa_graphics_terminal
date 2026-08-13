@@ -171,6 +171,53 @@ pub fn fmt_size_kb(kb: u64) -> String {
     }
 }
 
+/// Width of a signal bar, in cells (spec §5).
+pub const BAR_CELLS: usize = 8;
+
+/// An 8-cell magnitude bar for `value` scaled against `max` (spec §5 "signal bars").
+/// Drawn with block-element glyphs — the full block `█` (U+2588) and the left eighth-block
+/// series (U+258F..U+2589) — so the bar **survives copy/paste as text**, padded with
+/// spaces to a fixed [`BAR_CELLS`] width so columns align. `max <= 0` yields an empty bar
+/// (nothing to compare against). Scaling is against the column max in the result set, never
+/// a fixed 0–100, so an idle machine's small values still spread across the width.
+pub fn bar(value: f32, max: f32) -> String {
+    let frac = if max > 0.0 {
+        (value / max).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    // Total fill measured in eighths-of-a-cell across the whole bar.
+    let eighths_total = (frac * (BAR_CELLS * 8) as f32).round() as usize;
+    let full = eighths_total / 8;
+    let rem = eighths_total % 8;
+    let mut s = String::with_capacity(BAR_CELLS);
+    for _ in 0..full {
+        s.push('\u{2588}'); // full block
+    }
+    let mut cells = full;
+    if rem > 0 && full < BAR_CELLS {
+        // U+2588 (8/8) down to U+258F (1/8): codepoint 0x2590 - eighths.
+        s.push(char::from_u32(0x2590 - rem as u32).unwrap());
+        cells += 1;
+    }
+    for _ in cells..BAR_CELLS {
+        s.push(' ');
+    }
+    s
+}
+
+/// Per-row signal bars for the CPU and MEM columns (spec §5), each scaled against that
+/// column's maximum across the shown rows. Returned parallel to `quiet.rows`.
+pub fn bars_for(quiet: &Quiet) -> Vec<(String, String)> {
+    let cpu_max = quiet.rows.iter().map(|r| r.cpu_val).fold(0.0_f32, f32::max);
+    let mem_max = quiet.rows.iter().map(|r| r.mem_val).fold(0.0_f32, f32::max);
+    quiet
+        .rows
+        .iter()
+        .map(|r| (bar(r.cpu_val, cpu_max), bar(r.mem_val, mem_max)))
+        .collect()
+}
+
 /// Elide an exact-zero measurement to a dim rule (spec §4 "zero elision"): exact zero is
 /// the *absence* of a measurement, not a measurement. Non-zero keeps one decimal.
 fn elide_percent(v: f32) -> String {
@@ -354,6 +401,34 @@ root    13  0.0  0.0      0     0 ?        S    ago11    0:01 [ksoftirqd/0]\n";
         assert!(!is_kernel_command("/sbin/init splash"));
         assert!(!is_kernel_command("node [not a kernel] thing")); // doesn't start with '['
         assert!(!is_kernel_command("[")); // single char, not a bracketed pair
+    }
+
+    #[test]
+    fn signal_bars() {
+        // Fixed width, always BAR_CELLS cells (padded with spaces).
+        assert_eq!(bar(0.0, 100.0).chars().count(), BAR_CELLS);
+        assert_eq!(bar(50.0, 100.0).chars().count(), BAR_CELLS);
+        // Empty when there's nothing to scale against.
+        assert_eq!(bar(5.0, 0.0), "        ");
+        assert_eq!(bar(0.0, 100.0), "        ");
+        // Full bar is all full blocks.
+        assert_eq!(bar(100.0, 100.0), "████████");
+        // Half → four full blocks then spaces.
+        assert_eq!(bar(50.0, 100.0), "████    ");
+        // A small fraction shows a partial left-eighth glyph in the first cell.
+        assert_eq!(bar(1.0, 100.0), "\u{258F}       ");
+        // Clamps above max.
+        assert_eq!(bar(150.0, 100.0), "████████");
+    }
+
+    #[test]
+    fn bars_scale_to_column_max() {
+        let q = decorate_quiet(BLOCK).unwrap();
+        let bars = bars_for(&q);
+        assert_eq!(bars.len(), q.rows.len());
+        // init is 0.0 cpu → empty bar; node is the column max (12.4) → full bar.
+        assert_eq!(bars[0].0, "        ");
+        assert_eq!(bars[1].0, "████████");
     }
 
     #[test]
