@@ -306,9 +306,12 @@ body {
   padding: 1px 12px;
   white-space: nowrap;
 }
-/* PID/USER/COMMAND read left-to-right; the numeric columns stay right-aligned. */
+/* PID/USER/COMMAND read left-to-right; the numeric columns stay right-aligned. The
+   COMMAND header carries the `ps-cmd` class, so left-align it too (else it inherits the
+   default right-aligned `th` and floats away from its left-aligned cells). */
 #pspanel-table th.ps-l,
-#pspanel-table td.ps-l {
+#pspanel-table td.ps-l,
+#pspanel-table th.ps-cmd {
   text-align: left;
 }
 /* Level 1b metric cell: fixed-width value + block-glyph bar. `pre` preserves the value's
