@@ -52,6 +52,13 @@ interface PsBar {
   cpu: string;
   mem: string;
 }
+interface PsGroup {
+  group: string; // dev | browser | desktop | system | shell | other
+  rows: number[]; // indices into PsDecorated.rows
+  count: number;
+  cpu: number;
+  rss_kb: number;
+}
 interface PsDecorated {
   level: "quiet" | "bars" | "inspector";
   columns: string[];
@@ -64,6 +71,17 @@ interface PsDecorated {
   cpu_total: number;
   mem_total: number;
   core_count: number;
+  // Level 1c (spec §6): provenance groups with subtotals (only at the inspector level).
+  groups: PsGroup[];
+}
+// Per-process detail from the ps_enrich query (spec §6 detail pane).
+interface PsDetail {
+  pid: number;
+  ppid: number;
+  threads: number;
+  state: string;
+  state_long: string;
+  etimes: number;
 }
 
 // Escape-sequence hardening (§13). Terminal output is untrusted: a window/tab title
@@ -1124,12 +1142,50 @@ const psThead = document.querySelector("#pspanel-table thead")!;
 const psTbody = document.querySelector("#pspanel-table tbody")!;
 const psFold = document.getElementById("pspanel-fold")!;
 const psBody = document.getElementById("pspanel-body")!;
+const psDetail = document.getElementById("pspanel-detail")!;
 
 // The decorated model currently shown, plus the live sort key (spec §5 — c/m/p re-sort
 // without re-running the command). null ⇒ ps's native order.
 let psModel: PsDecorated | null = null;
 type PsSort = "cpu" | "mem" | "pid";
 let psSort: PsSort | null = null;
+
+// Level 1c inspector state (spec §6): the selected row (index into psModel.rows), the
+// collapsed provenance groups, the visible row order for ↑↓, and an async guard for the
+// per-row ps_enrich detail fetch. The tr elements are kept so selection re-highlights
+// without a full repaint.
+let psSelected: number | null = null;
+const psCollapsed = new Set<string>();
+let psVisibleOrder: number[] = [];
+const psRowEls = new Map<number, HTMLElement>();
+let psDetailSeq = 0;
+
+const isInspector = (): boolean => psModel?.level === "inspector";
+
+// Human-readable process group name for a header row.
+const PS_GROUP_LABEL: Record<string, string> = {
+  dev: "Dev",
+  browser: "Browser",
+  desktop: "Desktop",
+  system: "System",
+  shell: "Shell",
+  other: "Other",
+};
+
+function fmtElapsed(secs: number): string {
+  const d = Math.floor(secs / 86400);
+  const h = Math.floor((secs % 86400) / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${secs % 60}s`;
+  return `${secs}s`;
+}
+function fmtKb(kb: number): string {
+  if (kb >= 1024 * 1024) return `${(kb / 1024 / 1024).toFixed(1)}G`;
+  if (kb >= 1024) return `${(kb / 1024).toFixed(1)}M`;
+  return `${kb}K`;
+}
 
 // The exact `ps aux` header, used to locate the most recent table in the scrollback.
 const PS_AUX_HEADER = [
@@ -1142,6 +1198,10 @@ function hidePs(): void {
   if (psPanel.hidden) return;
   psPanel.hidden = true;
   psModel = null;
+  psSelected = null;
+  psCollapsed.clear();
+  psDetail.hidden = true;
+  psDetail.replaceChildren();
   refitActive();
 }
 
@@ -1163,9 +1223,15 @@ function sortedPsModel(m: PsDecorated, key: PsSort): PsDecorated {
   };
 }
 
-// Apply the current sort (if any) and repaint, refreshing the title's sort hint.
+// Apply the current sort (if any) and repaint, refreshing the title's hint. The inspector
+// (level 1c) renders grouped + selectable rather than the flat sortable table.
 function repaintPs(): void {
   if (!psModel) return;
+  if (isInspector()) {
+    renderInspector(psModel);
+    psTitle.textContent = `${psTitleBase}  (↑↓ select · k kill · y/Y copy · ←→ fold)`;
+    return;
+  }
   const view = psSort ? sortedPsModel(psModel, psSort) : psModel;
   renderPs(view);
   const sortNote = psSort ? ` · sorted by ${psSort}` : "";
@@ -1173,6 +1239,191 @@ function repaintPs(): void {
 }
 
 let psTitleBase = "Processes";
+
+// The inspector's compact column set (spec §6) — the detail pane carries the rest.
+const PS_INSPECTOR_COLS = ["PID", "%CPU", "%MEM", "RSS", "COMMAND"];
+
+// Render the two-pane inspector: rows grouped by provenance with subtotals (spec §6),
+// each row selectable; the detail pane (right) shows the selected process.
+function renderInspector(model: PsDecorated): void {
+  psDetail.hidden = false;
+  psThead.replaceChildren();
+  const htr = document.createElement("tr");
+  for (const col of PS_INSPECTOR_COLS) {
+    const th = document.createElement("th");
+    th.textContent = col;
+    if (col === "PID") th.className = "ps-l";
+    if (col === "COMMAND") th.className = "ps-cmd";
+    htr.appendChild(th);
+  }
+  psThead.appendChild(htr);
+
+  psTbody.replaceChildren();
+  psRowEls.clear();
+  psVisibleOrder = [];
+
+  for (const g of model.groups) {
+    const collapsed = psCollapsed.has(g.group);
+    // Group header row — clickable to collapse/expand.
+    const gtr = document.createElement("tr");
+    gtr.className = "ps-group";
+    const gtd = document.createElement("td");
+    gtd.colSpan = PS_INSPECTOR_COLS.length;
+    const name = PS_GROUP_LABEL[g.group] ?? g.group;
+    gtd.append(`${collapsed ? "▸" : "▾"} ${name}  `);
+    const sub = document.createElement("span");
+    sub.className = "ps-g-sub";
+    sub.textContent = `${g.count} · ${g.cpu.toFixed(1)}% cpu · ${fmtKb(g.rss_kb)}`;
+    gtd.appendChild(sub);
+    gtr.appendChild(gtd);
+    gtr.addEventListener("click", () => toggleGroup(g.group));
+    psTbody.appendChild(gtr);
+    if (collapsed) continue;
+
+    for (const ri of g.rows) {
+      const r = model.rows[ri];
+      const tr = document.createElement("tr");
+      const cell = (text: string, cls?: string) => {
+        const td = document.createElement("td");
+        td.textContent = text;
+        if (cls) td.className = cls;
+        tr.appendChild(td);
+      };
+      cell(r.pid, "ps-l");
+      cell(r.cpu, r.cpu === "–" ? "ps-zero" : psBand(r.cpu_val));
+      cell(r.mem, r.mem === "–" ? "ps-zero" : psBand(r.mem_val));
+      cell(r.rss, r.rss === "–" ? "ps-zero" : undefined);
+      const cmd = document.createElement("td");
+      cmd.className = "ps-cmd";
+      cmd.textContent = r.command;
+      cmd.title = r.command;
+      tr.appendChild(cmd);
+      tr.addEventListener("click", () => selectPs(ri));
+      psTbody.appendChild(tr);
+      psRowEls.set(ri, tr);
+      psVisibleOrder.push(ri);
+    }
+  }
+  psFold.textContent = model.kernel_summary ?? "";
+
+  // Keep a valid selection: the current one if still visible, else the first row.
+  if (psSelected === null || !psRowEls.has(psSelected)) {
+    psSelected = psVisibleOrder[0] ?? null;
+  }
+  updatePsSelection();
+}
+
+// Highlight the selected row, scroll it into view, and refresh the detail pane.
+function updatePsSelection(): void {
+  for (const el of psRowEls.values()) el.classList.remove("ps-sel");
+  if (psSelected === null) {
+    psDetail.replaceChildren();
+    return;
+  }
+  const el = psRowEls.get(psSelected);
+  if (el) {
+    el.classList.add("ps-sel");
+    el.scrollIntoView({ block: "nearest" });
+  }
+  void fetchPsDetail(psSelected);
+}
+
+function selectPs(rowIdx: number): void {
+  psSelected = rowIdx;
+  updatePsSelection();
+  psBody.focus();
+}
+
+function movePsSelection(delta: number): void {
+  if (!psVisibleOrder.length) return;
+  const cur = psSelected === null ? -1 : psVisibleOrder.indexOf(psSelected);
+  const next = Math.max(0, Math.min(psVisibleOrder.length - 1, cur + delta));
+  psSelected = psVisibleOrder[next];
+  updatePsSelection();
+}
+
+// Fetch and render the detail pane for the selected process (spec §6 detail pane). The
+// enrich query is per-row and async, so a sequence guard drops stale results.
+async function fetchPsDetail(rowIdx: number): Promise<void> {
+  if (!psModel) return;
+  const row = psModel.rows[rowIdx];
+  const seq = ++psDetailSeq;
+  const details = await invoke<PsDetail[]>("ps_enrich", { pids: [Number(row.pid)] });
+  if (seq !== psDetailSeq || psSelected !== rowIdx) return; // superseded
+  renderPsDetail(row, details[0]);
+}
+
+function renderPsDetail(row: PsRow, d: PsDetail | undefined): void {
+  psDetail.replaceChildren();
+  const cmd = document.createElement("p");
+  cmd.className = "ps-d-cmd";
+  cmd.textContent = row.command; // untrusted — textContent, never innerHTML
+  psDetail.appendChild(cmd);
+
+  const dl = document.createElement("dl");
+  const add = (k: string, v: string) => {
+    const dt = document.createElement("dt");
+    dt.textContent = k;
+    const dd = document.createElement("dd");
+    dd.textContent = v;
+    dl.append(dt, dd);
+  };
+  add("pid", row.pid);
+  add("user", row.user);
+  add("%cpu", row.cpu === "–" ? "0" : row.cpu);
+  add("%mem", row.mem === "–" ? "0" : row.mem);
+  add("rss", row.rss);
+  if (d) {
+    add("ppid", String(d.ppid));
+    add("threads", String(d.threads));
+    add("state", `${d.state_long} (${d.state})`);
+    const started = new Date(Date.now() - d.etimes * 1000);
+    add("started", `${started.toLocaleString()} (${fmtElapsed(d.etimes)} ago)`);
+  }
+  psDetail.appendChild(dl);
+
+  const hint = document.createElement("div");
+  hint.className = "ps-d-hint";
+  hint.textContent = "k → kill at prompt (never run) · y copy pid · Y copy command";
+  psDetail.appendChild(hint);
+}
+
+function toggleGroup(name: string): void {
+  if (psCollapsed.has(name)) psCollapsed.delete(name);
+  else psCollapsed.add(name);
+  repaintPs();
+}
+
+// Collapse/expand the group the selected row belongs to (← / →, h / l).
+function foldSelectedGroup(collapse: boolean): void {
+  if (psSelected === null || !psModel) return;
+  const g = psModel.groups.find((gr) => gr.rows.includes(psSelected!));
+  if (!g) return;
+  if (collapse) psCollapsed.add(g.group);
+  else psCollapsed.delete(g.group);
+  repaintPs();
+}
+
+// The signal action (spec §6): compose `kill <pid>` at the user's prompt — never executed.
+// The user's own shell runs what they type; this keeps the insert-never-run boundary (§13).
+function signalSelected(): void {
+  if (psSelected === null || !psModel) return;
+  const pid = psModel.rows[psSelected].pid;
+  const t = activeTab();
+  if (!t) return;
+  hidePs();
+  void invoke("write_session", {
+    session: t.id,
+    data: bytesToB64(encoder.encode(`kill ${pid} `)),
+  });
+  t.term.focus();
+}
+
+function copySelected(full: boolean): void {
+  if (psSelected === null || !psModel) return;
+  const row = psModel.rows[psSelected];
+  void navigator.clipboard.writeText(full ? row.command : row.pid);
+}
 
 // Reconstruct logical lines from the xterm buffer, joining rows xterm marked as wrapped
 // so a ps row wider than the terminal isn't split mid-field.
@@ -1222,6 +1473,7 @@ function psBand(v: number): string {
 }
 
 function renderPs(model: PsDecorated): void {
+  psDetail.hidden = true; // the detail pane belongs to the inspector level only
   // Level 1b (spec §5): bars present ⇒ show magnitude bars + header denominators.
   const bars = model.bars.length > 0;
 
@@ -1301,16 +1553,51 @@ async function enhancePs(): Promise<void> {
   } (${shown} total)`;
   psModel = model;
   psSort = null; // start in ps's native order
+  psSelected = null; // inspector: selection resolves to the first row on render
+  psCollapsed.clear();
   repaintPs();
   psPanel.hidden = false;
   refitActive();
-  psBody.focus(); // so c/m/p/Esc go to the panel, not the terminal
+  psBody.focus(); // so the panel keys go to it, not the terminal
 }
 document.getElementById("pspanel-close")!.addEventListener("click", hidePs);
 
-// Live sort (spec §5): c/m/p re-sort the shown rows without re-running the command.
+// Panel keys. Inspector (level 1c): ↑↓ select, k signal, y/Y copy, ←→/h l fold. Flat
+// (quiet/bars): c/m/p live sort (spec §5). Chords are left to the global dispatcher.
 psBody.addEventListener("keydown", (e) => {
-  if (e.ctrlKey || e.altKey || e.metaKey) return; // leave chords to the global dispatcher
+  if (e.ctrlKey || e.altKey || e.metaKey) return;
+  if (isInspector()) {
+    switch (e.key) {
+      case "ArrowDown":
+      case "j":
+        movePsSelection(1);
+        break;
+      case "ArrowUp":
+        movePsSelection(-1);
+        break;
+      case "k":
+        signalSelected();
+        break;
+      case "y":
+        copySelected(false);
+        break;
+      case "Y":
+        copySelected(true);
+        break;
+      case "ArrowLeft":
+      case "h":
+        foldSelectedGroup(true);
+        break;
+      case "ArrowRight":
+      case "l":
+        foldSelectedGroup(false);
+        break;
+      default:
+        return; // let anything else through (e.g. Esc → global handler)
+    }
+    e.preventDefault();
+    return;
+  }
   const key =
     e.key === "c" ? "cpu" : e.key === "m" ? "mem" : e.key === "p" ? "pid" : null;
   if (!key) return;

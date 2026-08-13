@@ -30,12 +30,15 @@
           <span id="pspanel-title">Processes</span>
           <button id="pspanel-close" title="Close (Esc)">✕</button>
         </div>
-        <div id="pspanel-body" tabindex="0">
-          <table id="pspanel-table">
-            <thead></thead>
-            <tbody></tbody>
-          </table>
-          <div id="pspanel-fold"></div>
+        <div id="pspanel-split">
+          <div id="pspanel-body" tabindex="0">
+            <table id="pspanel-table">
+              <thead></thead>
+              <tbody></tbody>
+            </table>
+            <div id="pspanel-fold"></div>
+          </div>
+          <aside id="pspanel-detail" hidden></aside>
         </div>
       </div>
       <div id="search" hidden>
