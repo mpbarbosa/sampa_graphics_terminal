@@ -346,6 +346,9 @@ struct PsDecorated {
     cpu_total: f32,
     mem_total: f32,
     core_count: usize,
+    /// Provenance groups with subtotals (spec §6), populated only at the `inspector`
+    /// level. `rows` inside each group indexes into `rows` above.
+    groups: Vec<sampa_ps_decorate::GroupView>,
 }
 
 /// `ps(1)` output enhancement (spec §3). Given a **scraped** `ps` output `block` (the
@@ -394,6 +397,12 @@ fn decorate_ps(config: State<'_, ConfigState>, block: String, cols: u16) -> Opti
     let core_count = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(1);
+    // Provenance groups only at the inspector level (spec §6).
+    let groups = if level == sampa_ps_decorate::Level::Inspector {
+        sampa_ps_decorate::group_rows(&quiet.rows)
+    } else {
+        Vec::new()
+    };
 
     Some(PsDecorated {
         level,
@@ -405,6 +414,7 @@ fn decorate_ps(config: State<'_, ConfigState>, block: String, cols: u16) -> Opti
         cpu_total,
         mem_total,
         core_count,
+        groups,
     })
 }
 

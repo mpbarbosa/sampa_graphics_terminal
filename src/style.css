@@ -221,6 +221,11 @@ body {
 #pspanel-close:hover {
   color: #c0caf5;
 }
+#pspanel-split {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
 #pspanel-body {
   flex: 1 1 auto;
   overflow: auto;
@@ -229,6 +234,56 @@ body {
 }
 #pspanel-body:focus-visible {
   box-shadow: inset 0 0 0 1px #2a2e42;
+}
+/* Level 1c inspector: detail pane (right) + group headers + row selection. */
+#pspanel-detail {
+  flex: 0 0 40%;
+  max-width: 460px;
+  overflow: auto;
+  border-left: 1px solid #2a2e42;
+  padding: 8px 12px;
+  font: 12px ui-monospace, monospace;
+  color: #a9b1d6;
+}
+#pspanel-detail[hidden] {
+  display: none;
+}
+#pspanel-detail .ps-d-cmd {
+  color: #c0caf5;
+  word-break: break-all;
+  white-space: pre-wrap;
+  margin: 0 0 8px;
+}
+#pspanel-detail dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 12px;
+  margin: 0;
+}
+#pspanel-detail dt {
+  color: #565f89;
+}
+#pspanel-detail dd {
+  margin: 0;
+}
+#pspanel-detail .ps-d-hint {
+  margin-top: 10px;
+  color: #565f89;
+  font-size: 11px;
+}
+/* Group header row (spec §6) — provenance + subtotals, click to collapse. */
+#pspanel-table tr.ps-group td {
+  color: #7dcfff;
+  background: #1a1c25;
+  padding-top: 5px;
+  cursor: pointer;
+  border-top: 1px solid #2a2e42;
+}
+#pspanel-table tr.ps-group .ps-g-sub {
+  color: #565f89;
+}
+#pspanel-table tr.ps-sel td {
+  background: #283457;
 }
 #pspanel-table {
   border-collapse: collapse;
