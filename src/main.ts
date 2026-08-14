@@ -810,6 +810,7 @@ const HELP_ACTIONS: Array<[string, string]> = [
   ["toggle_man", "Toggle man-page panel"],
   ["toggle_preview", "Toggle command preview"],
   ["enhance_ps", "Enhance last ps output"],
+  ["explain", "Explain typed command (AI)"],
   ["zoom_in", "Zoom in"],
   ["zoom_out", "Zoom out"],
   ["zoom_reset", "Reset zoom"],
@@ -978,6 +979,62 @@ document.getElementById("ai-cancel")!.addEventListener("click", closeAi);
 aiEl.addEventListener("mousedown", (e) => {
   if (e.target === aiEl) closeAi(); // click backdrop to dismiss
 });
+
+// ── Command explainer popup (Ctrl+Shift+X / [ai]) ────────────────────────────
+// The inverse of the suggester: send the command line the user has typed to the Claude
+// API and show a plain-prose description in a read-only popup. Pressing the shortcut is
+// the deliberate send (the command line leaves the machine); the gate/key live in the
+// core (explain_command), and nothing is ever executed.
+const explainEl = document.getElementById("explain")!;
+const explainCmd = document.getElementById("explain-cmd")!;
+const explainBody = document.getElementById("explain-body")!;
+let explainSeq = 0; // guards against out-of-order async results
+
+function closeExplain(): void {
+  if (explainEl.hidden) return;
+  explainEl.hidden = true;
+  activeTab()?.term.focus();
+}
+
+function setExplainBody(text: string, muted: boolean): void {
+  explainBody.textContent = text; // model/error text — textContent, never innerHTML
+  explainBody.classList.toggle("explain-muted", muted);
+}
+
+async function explainCurrent(): Promise<void> {
+  const command = activeTab()?.typed.trim() ?? "";
+  if (!command) return; // nothing typed to describe
+  explainCmd.textContent = command;
+  setExplainBody("Asking Claude…", true);
+  explainEl.hidden = false;
+  const seq = ++explainSeq;
+  try {
+    const desc = await invoke<string>("explain_command", { command });
+    if (seq !== explainSeq || explainEl.hidden) return; // superseded / dismissed
+    setExplainBody(desc, false);
+  } catch (e) {
+    if (seq !== explainSeq || explainEl.hidden) return;
+    setExplainBody(String(e), true); // e.g. "AI is disabled…" / "ANTHROPIC_API_KEY is not set"
+  }
+}
+
+document.getElementById("explain-close")!.addEventListener("click", closeExplain);
+explainEl.addEventListener("mousedown", (e) => {
+  if (e.target === explainEl) closeExplain(); // click backdrop to dismiss
+});
+// The popup has no input of its own, so close it on Esc from the capture phase (before
+// the terminal or the global chord dispatcher see the key).
+window.addEventListener(
+  "keydown",
+  (e) => {
+    if (!explainEl.hidden && e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      closeExplain();
+    }
+  },
+  true,
+);
 
 // ── Live man panel (DESIGN.md §10.2) ─────────────────────────────────────────
 // As you type a command, show `man <cmd>` beside the terminal. Robust because the
@@ -1705,6 +1762,7 @@ function rebuildBindings(): void {
     [parseChord(kb.help), toggleHelp],
     [parseChord(kb.ai), openAi],
     [parseChord(kb.enhance_ps), () => void enhancePs()],
+    [parseChord(kb.explain), () => void explainCurrent()],
   ];
 }
 rebuildBindings();

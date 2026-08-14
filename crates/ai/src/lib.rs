@@ -306,6 +306,89 @@ pub fn suggest_over_network(params: &Params, req: &Request) -> Result<Suggestion
     suggest(&UreqTransport, params, req)
 }
 
+// ── Explain an existing command line ─────────────────────────────────────────
+// The inverse of `suggest`: given a command the user has typed, return a plain-prose
+// description of what it does. Same opt-in / key-from-env / single-POST discipline; the
+// result is shown read-only, nothing is run.
+
+/// A command line to describe, plus the environment it targets.
+#[derive(Debug, Clone)]
+pub struct ExplainRequest<'a> {
+    /// The command line the user has typed (never executed — only described).
+    pub command: &'a str,
+    /// e.g. "linux".
+    pub os: &'a str,
+    /// e.g. "zsh".
+    pub shell: &'a str,
+}
+
+fn explain_system_prompt(shell: &str, os: &str) -> String {
+    format!(
+        "You explain shell commands for the {shell} shell on {os}. Given a command line, \
+describe clearly and concisely what it does: the overall effect first, then the notable \
+flags and arguments. If it is destructive or irreversible (deletes, overwrites, \
+force-pushes, or broadly changes permissions), call that out prominently. Do not run \
+anything. Answer in plain prose, no code fences."
+    )
+}
+
+fn explain_build_body(params: &Params, req: &ExplainRequest) -> String {
+    serde_json::json!({
+        "model": params.model,
+        "max_tokens": params.max_tokens,
+        "system": explain_system_prompt(req.shell, req.os),
+        "messages": [{
+            "role": "user",
+            "content": format!("<command>\n{}\n</command>", req.command)
+        }]
+    })
+    .to_string()
+}
+
+/// Parse a Messages response as free prose: check for a refusal, then return the first
+/// text block trimmed. (No structured schema — an explanation is naturally prose.)
+fn parse_text_response(text: &str) -> Result<String, AiError> {
+    let v: serde_json::Value =
+        serde_json::from_str(text).map_err(|e| AiError::Parse(e.to_string()))?;
+    if v.get("stop_reason").and_then(|s| s.as_str()) == Some("refusal") {
+        return Err(AiError::Refused);
+    }
+    let content = v
+        .get("content")
+        .and_then(|c| c.as_array())
+        .ok_or_else(|| AiError::Parse("no content array".into()))?;
+    let block = content
+        .iter()
+        .find(|b| b.get("type").and_then(|t| t.as_str()) == Some("text"))
+        .and_then(|b| b.get("text"))
+        .and_then(|t| t.as_str())
+        .ok_or_else(|| AiError::Parse("no text block".into()))?;
+    Ok(block.trim().to_string())
+}
+
+/// Ask the model to describe a command line. Generic over [`Transport`] for no-network tests.
+pub fn explain<T: Transport>(
+    transport: &T,
+    params: &Params,
+    req: &ExplainRequest,
+) -> Result<String, AiError> {
+    let body = explain_build_body(params, req);
+    let headers = [
+        ("content-type", "application/json"),
+        ("anthropic-version", ANTHROPIC_VERSION),
+        ("x-api-key", params.api_key.as_str()),
+    ];
+    let resp = transport
+        .post(&params.endpoint, &headers, &body)
+        .map_err(AiError::Http)?;
+    parse_text_response(&resp)
+}
+
+/// Convenience: explain over the real network transport.
+pub fn explain_over_network(params: &Params, req: &ExplainRequest) -> Result<String, AiError> {
+    explain(&UreqTransport, params, req)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -464,6 +547,51 @@ mod tests {
         let out = redact("❯ echo TOKEN=sk-live-SECRET123abcDEF");
         assert!(!out.contains("sk-live-SECRET123abcDEF"));
         assert!(out.contains(REDACTED));
+    }
+
+    fn ok_text_response(text: &str) -> String {
+        serde_json::json!({
+            "stop_reason": "end_turn",
+            "content": [{ "type": "text", "text": text }]
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn explain_returns_the_prose_description() {
+        let t = FakeTransport::new(&ok_text_response(
+            "Lists files in the current directory, one per line, including hidden ones.",
+        ));
+        let req = ExplainRequest { command: "ls -la", os: "linux", shell: "zsh" };
+        let out = explain(&t, &params(), &req).unwrap();
+        assert!(out.contains("Lists files"));
+        // The command is sent; the api key never appears in the body.
+        let body = t.seen_body.borrow();
+        assert!(body.contains("ls -la"));
+        assert!(!body.contains("sk-test-KEY"));
+        // Plain-prose ask — no structured schema for the explanation.
+        assert!(!body.contains("json_schema"));
+    }
+
+    #[test]
+    fn explain_sends_auth_headers() {
+        let t = FakeTransport::new(&ok_text_response("desc"));
+        let req = ExplainRequest { command: "rm -rf /tmp/x", os: "linux", shell: "zsh" };
+        explain(&t, &params(), &req).unwrap();
+        let h = t.seen_headers.borrow();
+        assert!(h.iter().any(|(k, v)| k == "x-api-key" && v == "sk-test-KEY"));
+        assert!(h.iter().any(|(k, v)| k == "anthropic-version"));
+    }
+
+    #[test]
+    fn explain_surfaces_refusal_and_parse_errors() {
+        let refused = serde_json::json!({ "stop_reason": "refusal", "content": [] }).to_string();
+        let req = ExplainRequest { command: "x", os: "linux", shell: "zsh" };
+        assert_eq!(explain(&FakeTransport::new(&refused), &params(), &req), Err(AiError::Refused));
+        assert!(matches!(
+            explain(&FakeTransport::new("nonsense"), &params(), &req),
+            Err(AiError::Parse(_))
+        ));
     }
 
     #[test]
