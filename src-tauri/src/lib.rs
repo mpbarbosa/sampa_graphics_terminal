@@ -517,6 +517,49 @@ async fn suggest_command(
     .map_err(|e| e.to_string())?
 }
 
+/// Opt-in Claude-API command *explainer* (§13). The inverse of `suggest_command`: given a
+/// `command` line the user typed, return a plain-prose description of what it does. Same
+/// gate — inert unless `[ai] enabled`, key from `ANTHROPIC_API_KEY` — and the same off-runtime
+/// blocking call. Nothing is executed; the frontend shows the text read-only. Pressing the
+/// explain shortcut is the deliberate send (the command line leaves the machine).
+#[tauri::command]
+async fn explain_command(
+    config: State<'_, ConfigState>,
+    command: String,
+) -> Result<String, String> {
+    let (ai_cfg, shell) = {
+        let c = config.current.lock().unwrap();
+        (c.ai.clone(), c.shell.program.clone())
+    };
+    if !ai_cfg.enabled {
+        return Err("AI is disabled — set [ai] enabled = true in config.toml".into());
+    }
+    let api_key = std::env::var("ANTHROPIC_API_KEY")
+        .map_err(|_| "ANTHROPIC_API_KEY is not set in the environment".to_string())?;
+    let params = sampa_ai::Params {
+        model: ai_cfg.model,
+        endpoint: ai_cfg.endpoint,
+        api_key,
+        max_tokens: 2048,
+    };
+    let shell_name = shell
+        .as_deref()
+        .and_then(|p| p.rsplit('/').next())
+        .unwrap_or("shell")
+        .to_string();
+
+    tokio::task::spawn_blocking(move || {
+        let req = sampa_ai::ExplainRequest {
+            command: &command,
+            os: std::env::consts::OS,
+            shell: &shell_name,
+        };
+        sampa_ai::explain_over_network(&params, &req).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Launch-time options from the command line (`--hold`, `--title`).
 #[tauri::command]
 fn get_launch_options(cli: State<'_, CliState>) -> LaunchOptions {
@@ -658,6 +701,7 @@ pub fn run() {
             ps_enrich,
             open_url,
             suggest_command,
+            explain_command,
             quit_app,
             get_launch_options
         ])

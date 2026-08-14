@@ -89,6 +89,16 @@
           <div id="ai-status" hidden></div>
         </div>
       </div>
+      <div id="explain" hidden>
+        <div class="explain-box" role="dialog" aria-modal="true" aria-label="Explain command">
+          <div class="explain-head">
+            <span id="explain-title">Explain</span>
+            <button id="explain-close" title="Close (Esc)">✕</button>
+          </div>
+          <code id="explain-cmd"></code>
+          <div id="explain-body"></div>
+        </div>
+      </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

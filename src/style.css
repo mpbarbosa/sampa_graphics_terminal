@@ -720,3 +720,72 @@ body {
   outline: 2px solid #7dcfff;
   outline-offset: 1px;
 }
+
+/* Command explainer popup (Ctrl+Shift+X / [ai]). A read-only description of the typed
+   command, returned by the Claude API. */
+#explain {
+  position: fixed;
+  inset: 0;
+  z-index: 96;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+  background: rgba(0, 0, 0, 0.45);
+}
+#explain[hidden] {
+  display: none;
+}
+.explain-box {
+  width: min(560px, 92%);
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  background: #1a1b26;
+  border: 1px solid #2a2e42;
+  border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.explain-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid #2a2e42;
+  color: #c0caf5;
+  font: 600 14px ui-sans-serif, system-ui, sans-serif;
+}
+.explain-head button {
+  border: none;
+  background: transparent;
+  color: #7a819e;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+}
+.explain-head button:hover {
+  color: #c0caf5;
+}
+#explain-cmd {
+  margin: 12px 14px 0;
+  padding: 8px 10px;
+  background: #16161e;
+  border: 1px solid #2a2e42;
+  border-radius: 6px;
+  color: #7dcfff;
+  font: 13px ui-monospace, monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+#explain-body {
+  margin: 0;
+  padding: 12px 14px 16px;
+  overflow-y: auto;
+  color: #c0caf5;
+  font: 14px/1.5 ui-sans-serif, system-ui, sans-serif;
+  white-space: pre-wrap;
+}
+#explain-body.explain-muted {
+  color: #7a819e;
+}
