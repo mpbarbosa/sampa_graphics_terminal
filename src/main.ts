@@ -247,9 +247,13 @@ interface Tab {
   titleEl: HTMLElement;
   unlisten: UnlistenFn[];
   // What the user has typed on the current command line, reconstructed from keystrokes
-  // (for the man panel). Reset on Enter/Ctrl-C; autosuggestions never enter it since
-  // they aren't keystrokes.
+  // (for the man panel, preview, and explain). Reset on Enter/Ctrl-C; autosuggestions
+  // never enter it since they aren't keystrokes.
   typed: string;
+  // Escape-sequence parser state for trackTyped, so arrow keys / function keys don't
+  // leak their sequence bodies (e.g. `ESC O B` → "OB") into `typed`. Persists across
+  // onData chunks since a sequence can split.
+  escState: "none" | "esc" | "csi" | "ss3" | "osc";
 }
 
 const appEl = document.getElementById("app")!;
@@ -489,7 +493,7 @@ async function createTab(
   tabEl.append(titleEl, closeEl);
   tabbarEl.insertBefore(tabEl, newTabBtn);
 
-  const tab: Tab = { id, term, fit, search, pane, tabEl, titleEl, unlisten, typed: "" };
+  const tab: Tab = { id, term, fit, search, pane, tabEl, titleEl, unlisten, typed: "", escState: "none" };
 
   if (opts.title) {
     // An explicit --title wins; don't let the shell's OSC title override it.
@@ -1092,7 +1096,27 @@ async function showMan(cmd: string): Promise<void> {
 function trackTyped(tab: Tab, data: string): void {
   for (const ch of data) {
     const code = ch.codePointAt(0)!;
-    if (ch === "\r" || ch === "\n" || code === 0x03) tab.typed = ""; // submit / Ctrl-C
+    // Consume escape sequences whole, so arrow/function keys (e.g. `ESC O B` for the
+    // down arrow, `ESC [ C` for right) don't leak their bodies ("OB", "[C") into `typed`.
+    switch (tab.escState) {
+      case "esc": // just after ESC: classify the sequence introducer
+        tab.escState =
+          ch === "[" ? "csi" : ch === "O" ? "ss3" : ch === "]" ? "osc" : "none";
+        continue;
+      case "csi": // ESC [ … ends at a final byte 0x40–0x7e
+        if (code >= 0x40 && code <= 0x7e) tab.escState = "none";
+        continue;
+      case "ss3": // ESC O <one final byte> (application-mode cursor/function keys)
+        tab.escState = "none";
+        continue;
+      case "osc": // ESC ] … ends at BEL, or ST (ESC \)
+        if (code === 0x07) tab.escState = "none";
+        else if (code === 0x1b) tab.escState = "esc";
+        continue;
+    }
+    // Normal state.
+    if (code === 0x1b) tab.escState = "esc"; // start of an escape sequence
+    else if (ch === "\r" || ch === "\n" || code === 0x03) tab.typed = ""; // submit / Ctrl-C
     else if (code === 0x7f || code === 0x08) tab.typed = tab.typed.slice(0, -1); // backspace
     else if (code >= 0x20) tab.typed += ch; // printable
   }
