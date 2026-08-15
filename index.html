@@ -109,6 +109,16 @@
           <div class="cdtree-hint">↑↓ move · → expand · ← collapse · Enter choose · Esc cancel</div>
         </div>
       </div>
+      <div id="dumap" hidden>
+        <div class="dumap-box" role="dialog" aria-modal="true" aria-label="Disk usage">
+          <div class="dumap-head">
+            <span id="dumap-crumb"></span>
+            <button id="dumap-close" title="Close (Esc)">✕</button>
+          </div>
+          <div id="dumap-body" tabindex="0"></div>
+          <div class="dumap-hint">click a box to zoom · Backspace up · Enter cd here · Esc close</div>
+        </div>
+      </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

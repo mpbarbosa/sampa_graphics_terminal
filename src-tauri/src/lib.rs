@@ -444,6 +444,54 @@ fn ps_enrich(pids: Vec<u32>) -> Vec<sampa_ps_decorate::PsDetail> {
     }
 }
 
+/// Disk-usage treemap data (read-only): run `du -k` on `path` and parse it into a sized
+/// tree (`sampa_dumap`). `du` traverses the whole subtree and can be slow, so it runs off
+/// the async runtime with a wall-clock timeout (the child is killed on expiry) and a depth
+/// cap that bounds the output; `-x` keeps it on one filesystem. Read-only — `du` only
+/// stats; nothing frontend-supplied is shelled. The chosen directory is inserted at the
+/// prompt (`cd <path>`), never executed.
+#[tauri::command]
+async fn run_du(path: String) -> Result<sampa_dumap::DuNode, String> {
+    tokio::task::spawn_blocking(move || {
+        let out = du_output(&path).ok_or_else(|| "du timed out or failed".to_string())?;
+        sampa_dumap::parse_du(&out).ok_or_else(|| "no directory sizes found".to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Run `du -k -x --max-depth=4 <path>` with a 6s wall-clock cap. Returns the stdout, or
+/// `None` if it can't spawn or exceeds the timeout (the child is killed). No shell.
+fn du_output(path: &str) -> Option<String> {
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+    let mut child = Command::new("du")
+        .args(["-k", "-x", "--max-depth=4", path])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let mut stdout = child.stdout.take()?;
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut s = String::new();
+        let _ = stdout.read_to_string(&mut s);
+        let _ = tx.send(s);
+    });
+    match rx.recv_timeout(std::time::Duration::from_secs(6)) {
+        Ok(s) => {
+            let _ = child.wait();
+            Some(s)
+        }
+        Err(_) => {
+            let _ = child.kill(); // timed out — kill du, then reap
+            let _ = child.wait();
+            None
+        }
+    }
+}
+
 /// Immediate subdirectories of `path`, for the `cd` tree picker (read-only, no shell).
 /// The frontend calls this on the session cwd and again per expanded node to lazily grow
 /// the tree; the chosen directory is inserted at the prompt, never executed. Best-effort:
@@ -709,6 +757,7 @@ pub fn run() {
             decorate_ps,
             ps_enrich,
             list_dirs,
+            run_du,
             open_url,
             suggest_command,
             explain_command,

@@ -2678,6 +2678,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "sampa-dumap"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "sampa-fsnav"
 version = "0.1.0"
 dependencies = [
@@ -2720,6 +2727,7 @@ dependencies = [
  "sampa-ai",
  "sampa-cli",
  "sampa-config",
+ "sampa-dumap",
  "sampa-fsnav",
  "sampa-man",
  "sampa-palette",

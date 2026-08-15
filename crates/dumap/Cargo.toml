@@ -1,0 +1,12 @@
+[package]
+name = "sampa-dumap"
+version = "0.1.0"
+edition = "2021"
+description = "Parse du(1) output into a sized directory tree for the disk-usage treemap."
+license = "MIT"
+
+# Headless parse core — turns `du -k` output into a nested, size-aggregated tree the
+# frontend lays out as a treemap. Pure (serde only, for the IPC model); no shell, no Tauri.
+# Fails safe to None on malformed input, mirroring the ps-decorate discipline.
+[dependencies]
+serde = { version = "1", features = ["derive"] }
