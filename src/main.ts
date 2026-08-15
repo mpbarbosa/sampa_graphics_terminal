@@ -122,6 +122,16 @@ interface PingReport {
   rtt: { min: number; avg: number; max: number; mdev: number } | null;
 }
 
+// One filesystem's usage from run_df (KiB), for the df gauge view.
+interface FsUsage {
+  filesystem: string;
+  size_kb: number;
+  used_kb: number;
+  avail_kb: number;
+  use_pct: number;
+  mount: string;
+}
+
 // Per-process detail from the ps_enrich query (spec §6 detail pane).
 interface PsDetail {
   pid: number;
@@ -861,7 +871,7 @@ const HELP_ACTIONS: Array<[string, string]> = [
   ["palette", "Command palette"],
   ["toggle_man", "Toggle man-page panel"],
   ["toggle_preview", "Toggle command preview"],
-  ["enhance_ps", "Enhance ps / cd / du / free / ping"],
+  ["enhance_ps", "Enhance ps / cd / du / free / ping / df"],
   ["explain", "Explain typed command (AI)"],
   ["zoom_in", "Zoom in"],
   ["zoom_out", "Zoom out"],
@@ -1269,8 +1279,98 @@ function enhanceShortcut(): void {
   else if (first === "du") void openDuMap();
   else if (first === "free") void openFreeGauge();
   else if (first === "ping") void openPingChart();
+  else if (first === "df") void openDfGauge();
   else void enhancePs();
 }
+
+// ── df disk-free gauge (Ctrl+Shift+E while a `df` command is typed) ───────────
+// Runs a read-only `df -k` (run_df) and shows one proportional bar per filesystem — used /
+// reserved / free, coloured by use%. Informational; nothing is composed or run.
+const dfEl = document.getElementById("dfgauge")!;
+const dfBody = document.getElementById("df-body")!;
+
+function closeDfGauge(): void {
+  if (dfEl.hidden) return;
+  dfEl.hidden = true;
+  activeTab()?.term.focus();
+}
+
+// Usage colour band by use% — redundant with bar length, never sole signal.
+function dfBand(pct: number): string {
+  if (pct < 70) return "#9ece6a";
+  if (pct < 85) return "#e0af68";
+  if (pct < 95) return "#ff9e64";
+  return "#f7768e";
+}
+
+function renderDfGauge(rows: FsUsage[]): void {
+  dfBody.replaceChildren();
+  if (rows.length === 0) {
+    dfBody.textContent = "No filesystems reported.";
+    return;
+  }
+  // Fullest first — the most actionable.
+  const sorted = [...rows].sort((a, b) => b.use_pct - a.use_pct);
+  for (const f of sorted) {
+    const wrap = document.createElement("div");
+    wrap.className = "df-fs";
+
+    const title = document.createElement("div");
+    title.className = "df-fs-title";
+    const mount = document.createElement("span");
+    mount.className = "df-mount";
+    mount.textContent = f.mount;
+    mount.title = `${f.mount}  (${f.filesystem})`;
+    const stat = document.createElement("span");
+    stat.className = "df-stat";
+    stat.textContent = `${f.use_pct}% · ${fmtKb(f.used_kb)} / ${fmtKb(f.size_kb)} · ${fmtKb(f.avail_kb)} free`;
+    title.append(mount, stat);
+    wrap.appendChild(title);
+
+    const bar = document.createElement("div");
+    bar.className = "df-bar";
+    const reserved = Math.max(0, f.size_kb - f.used_kb - f.avail_kb);
+    const seg = (grow: number, cls?: string, color?: string) => {
+      if (grow <= 0) return;
+      const el = document.createElement("div");
+      el.className = cls ? `seg ${cls}` : "seg";
+      el.style.flexGrow = String(grow);
+      el.style.flexBasis = "0";
+      if (color) el.style.background = color;
+      bar.appendChild(el);
+    };
+    seg(f.used_kb, undefined, dfBand(f.use_pct)); // used — coloured by band
+    seg(reserved, "df-seg-reserved"); // reserved (root-only) blocks
+    seg(f.avail_kb, "df-seg-free"); // available
+    wrap.appendChild(bar);
+    dfBody.appendChild(wrap);
+  }
+}
+
+async function openDfGauge(): Promise<void> {
+  dfBody.replaceChildren();
+  dfBody.textContent = "Reading filesystems…";
+  dfEl.hidden = false;
+  dfBody.focus();
+  try {
+    const rows = await invoke<FsUsage[]>("run_df");
+    if (dfEl.hidden) return;
+    renderDfGauge(rows);
+  } catch (e) {
+    if (!dfEl.hidden) dfBody.textContent = String(e);
+  }
+}
+
+document.getElementById("df-close")!.addEventListener("click", closeDfGauge);
+dfEl.addEventListener("mousedown", (e) => {
+  if (e.target === dfEl) closeDfGauge();
+});
+dfBody.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" || e.key === "Enter") {
+    e.preventDefault();
+    closeDfGauge();
+  }
+});
 
 // ── ping latency chart (Ctrl+Shift+E while a `ping` command is typed) ─────────
 // Runs a bounded read-only `ping` (run_ping) to the host on the typed line and draws the

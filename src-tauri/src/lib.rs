@@ -542,6 +542,50 @@ fn ping_output(host: &str) -> Option<String> {
     }
 }
 
+/// Per-filesystem usage for the `df` gauge view (read-only): run `df -k` and parse it
+/// (`sampa_dfdec`). `df` stats every mount and can block on a stale network mount, so it
+/// runs off the async runtime with a wall-clock timeout (child killed on expiry). No shell.
+#[tauri::command]
+async fn run_df() -> Result<Vec<sampa_dfdec::FsUsage>, String> {
+    tokio::task::spawn_blocking(|| {
+        let out = df_output().ok_or_else(|| "df timed out or failed".to_string())?;
+        sampa_dfdec::parse_df(&out).ok_or_else(|| "could not parse df output".to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Run `df -k` with a 6s wall-clock cap (killed on expiry). Returns stdout, or `None`. No shell.
+fn df_output() -> Option<String> {
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+    let mut child = Command::new("df")
+        .args(["-k"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let mut stdout = child.stdout.take()?;
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut s = String::new();
+        let _ = stdout.read_to_string(&mut s);
+        let _ = tx.send(s);
+    });
+    match rx.recv_timeout(std::time::Duration::from_secs(6)) {
+        Ok(s) => {
+            let _ = child.wait();
+            Some(s)
+        }
+        Err(_) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            None
+        }
+    }
+}
+
 /// Memory/swap stats for the `free` gauge view (read-only). Runs `free -k` and parses it
 /// (`sampa_freemem`). `free` reads `/proc/meminfo` and returns instantly, so no timeout is
 /// needed. No shell; nothing is executed on the user's behalf.
@@ -824,6 +868,7 @@ pub fn run() {
             run_du,
             run_free,
             run_ping,
+            run_df,
             open_url,
             suggest_command,
             explain_command,
