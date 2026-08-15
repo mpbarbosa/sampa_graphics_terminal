@@ -107,6 +107,21 @@ interface FreeInfo {
   swap: SwapStats | null;
 }
 
+// Ping latency data from run_ping, for the ping chart view.
+interface PingReply {
+  seq: number;
+  time_ms: number;
+}
+interface PingReport {
+  host: string | null;
+  ip: string | null;
+  replies: PingReply[];
+  transmitted: number;
+  received: number;
+  loss_pct: number;
+  rtt: { min: number; avg: number; max: number; mdev: number } | null;
+}
+
 // Per-process detail from the ps_enrich query (spec §6 detail pane).
 interface PsDetail {
   pid: number;
@@ -846,7 +861,7 @@ const HELP_ACTIONS: Array<[string, string]> = [
   ["palette", "Command palette"],
   ["toggle_man", "Toggle man-page panel"],
   ["toggle_preview", "Toggle command preview"],
-  ["enhance_ps", "Enhance ps / cd tree / du treemap / free gauge"],
+  ["enhance_ps", "Enhance ps / cd / du / free / ping"],
   ["explain", "Explain typed command (AI)"],
   ["zoom_in", "Zoom in"],
   ["zoom_out", "Zoom out"],
@@ -1253,8 +1268,139 @@ function enhanceShortcut(): void {
   if (first === "cd") void openCdTree();
   else if (first === "du") void openDuMap();
   else if (first === "free") void openFreeGauge();
+  else if (first === "ping") void openPingChart();
   else void enhancePs();
 }
+
+// ── ping latency chart (Ctrl+Shift+E while a `ping` command is typed) ─────────
+// Runs a bounded read-only `ping` (run_ping) to the host on the typed line and draws the
+// per-packet RTTs as a bar chart with a summary — the shape (jitter, spikes, loss) the raw
+// stream hides. Informational; nothing is composed or run beyond the ping the user asked
+// for. The layout is pixel-dependent so it lives here; the core only parses ping output.
+const pingEl = document.getElementById("pingchart")!;
+const pingTitle = document.getElementById("ping-title")!;
+const pingSub = document.getElementById("ping-sub")!;
+const pingBody = document.getElementById("ping-body")!;
+
+function closePingChart(): void {
+  if (pingEl.hidden) return;
+  pingEl.hidden = true;
+  activeTab()?.term.focus();
+}
+
+// Latency colour band (ms) — redundant with bar height, never sole signal.
+function pingBand(ms: number): string {
+  if (ms < 30) return "#9ece6a";
+  if (ms < 100) return "#e0af68";
+  if (ms < 200) return "#ff9e64";
+  return "#f7768e";
+}
+
+async function openPingChart(): Promise<void> {
+  // Host = the last non-flag token of the typed line (ping's host is normally last).
+  const toks = (activeTab()?.typed.trim() ?? "").split(/\s+/).slice(1);
+  const host = toks.filter((t) => !t.startsWith("-")).pop() ?? "";
+  if (!host) return; // `ping` with no host — nothing to do
+  pingTitle.textContent = `ping ${host}`;
+  pingSub.textContent = "";
+  pingBody.replaceChildren();
+  pingBody.textContent = `Pinging ${host}…`;
+  pingEl.hidden = false;
+  pingBody.focus();
+  try {
+    const report = await invoke<PingReport>("run_ping", { host });
+    if (pingEl.hidden) return; // dismissed while pinging
+    renderPingChart(report);
+  } catch (e) {
+    if (!pingEl.hidden) pingBody.textContent = String(e);
+  }
+}
+
+function renderPingChart(r: PingReport): void {
+  pingTitle.textContent = `ping ${r.host ?? ""}${r.ip ? ` (${r.ip})` : ""}`.trim();
+  const rtt = r.rtt;
+  pingSub.textContent =
+    `${r.transmitted} sent · ${r.received} recv · ${r.loss_pct}% loss` +
+    (rtt ? ` · min/avg/max ${rtt.min.toFixed(1)}/${rtt.avg.toFixed(1)}/${rtt.max.toFixed(1)} ms · mdev ${rtt.mdev.toFixed(1)}` : "");
+
+  pingBody.replaceChildren();
+  if (r.replies.length === 0) {
+    pingBody.textContent =
+      r.loss_pct >= 100 ? "All packets lost — no latency to chart." : "No replies to chart.";
+    return;
+  }
+  // Series indexed by sequence 1..maxSeq; a missing seq (loss) is a red floor tick.
+  const bySeq = new Map(r.replies.map((p) => [p.seq, p.time_ms]));
+  const maxSeq = Math.max(...r.replies.map((p) => p.seq));
+  const maxT = rtt?.max ?? Math.max(...r.replies.map((p) => p.time_ms));
+  const W = 1000;
+  const H = 180;
+  const PADX = 4;
+  const PADY = 8;
+  const chartH = H - PADY * 2;
+  const n = maxSeq;
+  const bw = (W - PADX * 2) / n;
+
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.id = "ping-svg";
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.setAttribute("preserveAspectRatio", "none");
+
+  // Average baseline.
+  if (rtt && maxT > 0) {
+    const y = PADY + chartH - (rtt.avg / maxT) * chartH;
+    const avg = document.createElementNS(SVG_NS, "line");
+    avg.setAttribute("class", "ping-avg");
+    avg.setAttribute("x1", String(PADX));
+    avg.setAttribute("x2", String(W - PADX));
+    avg.setAttribute("y1", String(y));
+    avg.setAttribute("y2", String(y));
+    svg.appendChild(avg);
+  }
+
+  for (let seq = 1; seq <= n; seq++) {
+    const x = PADX + (seq - 1) * bw;
+    const t = bySeq.get(seq);
+    const g = document.createElementNS(SVG_NS, "g");
+    g.setAttribute("class", "ping-cell");
+    const rect = document.createElementNS(SVG_NS, "rect");
+    rect.setAttribute("x", String(x + bw * 0.1));
+    rect.setAttribute("width", String(Math.max(1, bw * 0.8)));
+    if (t === undefined) {
+      // Lost packet: a short red floor tick.
+      const th = Math.min(8, chartH);
+      rect.setAttribute("y", String(PADY + chartH - th));
+      rect.setAttribute("height", String(th));
+      rect.setAttribute("fill", "#f7768e");
+      const title = document.createElementNS(SVG_NS, "title");
+      title.textContent = `seq ${seq}: lost`;
+      g.appendChild(rect);
+      g.appendChild(title);
+    } else {
+      const h = maxT > 0 ? Math.max(1, (t / maxT) * chartH) : 1;
+      rect.setAttribute("y", String(PADY + chartH - h));
+      rect.setAttribute("height", String(h));
+      rect.setAttribute("fill", pingBand(t));
+      const title = document.createElementNS(SVG_NS, "title");
+      title.textContent = `seq ${seq}: ${t.toFixed(1)} ms`;
+      g.appendChild(rect);
+      g.appendChild(title);
+    }
+    svg.appendChild(g);
+  }
+  pingBody.appendChild(svg);
+}
+
+document.getElementById("ping-close")!.addEventListener("click", closePingChart);
+pingEl.addEventListener("mousedown", (e) => {
+  if (e.target === pingEl) closePingChart();
+});
+pingBody.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" || e.key === "Enter") {
+    e.preventDefault();
+    closePingChart();
+  }
+});
 
 // ── free memory gauge (Ctrl+Shift+E while a `free` command is typed) ──────────
 // Runs a read-only `free -k` (run_free) and shows RAM + swap as proportional segmented
