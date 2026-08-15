@@ -444,6 +444,15 @@ fn ps_enrich(pids: Vec<u32>) -> Vec<sampa_ps_decorate::PsDetail> {
     }
 }
 
+/// Immediate subdirectories of `path`, for the `cd` tree picker (read-only, no shell).
+/// The frontend calls this on the session cwd and again per expanded node to lazily grow
+/// the tree; the chosen directory is inserted at the prompt, never executed. Best-effort:
+/// an unreadable path returns `[]`.
+#[tauri::command]
+fn list_dirs(path: String) -> Vec<sampa_fsnav::Dir> {
+    sampa_fsnav::list_subdirs(&path)
+}
+
 /// Quit the app (used when the last tab is closed).
 #[tauri::command]
 fn quit_app(app: tauri::AppHandle) {
@@ -699,6 +708,7 @@ pub fn run() {
             render_preview,
             decorate_ps,
             ps_enrich,
+            list_dirs,
             open_url,
             suggest_command,
             explain_command,
