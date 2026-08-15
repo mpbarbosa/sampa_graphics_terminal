@@ -99,6 +99,16 @@
           <div id="explain-body"></div>
         </div>
       </div>
+      <div id="cdtree" hidden>
+        <div class="cdtree-box" role="dialog" aria-modal="true" aria-label="Choose a directory">
+          <div class="cdtree-head">
+            <span id="cdtree-root"></span>
+            <button id="cdtree-close" title="Close (Esc)">✕</button>
+          </div>
+          <div id="cdtree-body" tabindex="0" role="tree"></div>
+          <div class="cdtree-hint">↑↓ move · → expand · ← collapse · Enter choose · Esc cancel</div>
+        </div>
+      </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

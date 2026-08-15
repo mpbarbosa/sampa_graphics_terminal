@@ -74,6 +74,12 @@ interface PsDecorated {
   // Level 1c (spec §6): provenance groups with subtotals (only at the inspector level).
   groups: PsGroup[];
 }
+// A subdirectory returned by list_dirs (for the cd tree picker).
+interface Dir {
+  name: string;
+  path: string;
+}
+
 // Per-process detail from the ps_enrich query (spec §6 detail pane).
 interface PsDetail {
   pid: number;
@@ -813,7 +819,7 @@ const HELP_ACTIONS: Array<[string, string]> = [
   ["palette", "Command palette"],
   ["toggle_man", "Toggle man-page panel"],
   ["toggle_preview", "Toggle command preview"],
-  ["enhance_ps", "Enhance last ps output"],
+  ["enhance_ps", "Enhance ps output / cd tree"],
   ["explain", "Explain typed command (AI)"],
   ["zoom_in", "Zoom in"],
   ["zoom_out", "Zoom out"],
@@ -1039,6 +1045,187 @@ window.addEventListener(
   },
   true,
 );
+
+// ── cd tree picker (Ctrl+Shift+E while a `cd` command is typed) ───────────────
+// Opens a directory tree rooted at the session cwd; the user navigates and chooses a
+// directory, which is inserted as the `cd` argument — never executed (insert-never-run).
+// Directories load lazily (one level per expand) via the read-only list_dirs command.
+const cdEl = document.getElementById("cdtree")!;
+const cdRootEl = document.getElementById("cdtree-root")!;
+const cdBody = document.getElementById("cdtree-body")!;
+
+interface CdNode {
+  name: string;
+  path: string;
+  depth: number;
+  expanded: boolean;
+  loaded: boolean;
+  children: CdNode[];
+}
+let cdRoot = ""; // absolute cwd the tree is rooted at
+let cdTree: CdNode[] = []; // top-level nodes (subdirs of cdRoot)
+let cdVisible: CdNode[] = []; // flattened, respecting expanded state (for ↑↓)
+let cdSelected = 0;
+
+function makeCdNodes(dirs: Dir[], depth: number): CdNode[] {
+  return dirs.map((d) => ({
+    name: d.name,
+    path: d.path,
+    depth,
+    expanded: false,
+    loaded: false,
+    children: [],
+  }));
+}
+
+function closeCdTree(): void {
+  if (cdEl.hidden) return;
+  cdEl.hidden = true;
+  cdTree = [];
+  cdVisible = [];
+  activeTab()?.term.focus();
+}
+
+async function openCdTree(): Promise<void> {
+  const t = activeTab();
+  if (!t) return;
+  const cwd = (await invoke<string | null>("get_session_cwd", { session: t.id })) ?? null;
+  if (!cwd) return;
+  cdRoot = cwd;
+  cdTree = makeCdNodes(await invoke<Dir[]>("list_dirs", { path: cwd }), 0);
+  cdSelected = 0;
+  cdRootEl.textContent = `cd — ${cwd}`;
+  renderCdTree();
+  cdEl.hidden = false;
+  cdBody.focus();
+}
+
+// Flatten the tree into the visible node list (depth-first, honoring `expanded`).
+function flattenCd(nodes: CdNode[], out: CdNode[]): void {
+  for (const n of nodes) {
+    out.push(n);
+    if (n.expanded) flattenCd(n.children, out);
+  }
+}
+
+function renderCdTree(): void {
+  cdVisible = [];
+  flattenCd(cdTree, cdVisible);
+  if (cdSelected >= cdVisible.length) cdSelected = Math.max(0, cdVisible.length - 1);
+  cdBody.replaceChildren();
+  if (cdVisible.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "cd-row cd-arrow";
+    empty.textContent = "(no subdirectories)";
+    cdBody.appendChild(empty);
+    return;
+  }
+  cdVisible.forEach((n, i) => {
+    const row = document.createElement("div");
+    row.className = i === cdSelected ? "cd-row cd-sel" : "cd-row";
+    row.style.paddingLeft = `${14 + n.depth * 16}px`;
+    const arrow = document.createElement("span");
+    arrow.className = "cd-arrow";
+    arrow.textContent = n.expanded ? "▾" : "▸";
+    const name = document.createElement("span");
+    name.className = "cd-name";
+    name.textContent = n.name; // directory name — textContent, never innerHTML
+    row.append(arrow, name);
+    row.addEventListener("click", () => {
+      cdSelected = i;
+      void toggleCdNode(n);
+    });
+    row.addEventListener("dblclick", () => chooseCd(n));
+    cdBody.appendChild(row);
+  });
+  cdBody.querySelector(".cd-sel")?.scrollIntoView({ block: "nearest" });
+}
+
+async function expandCdNode(n: CdNode): Promise<void> {
+  if (!n.loaded) {
+    n.children = makeCdNodes(await invoke<Dir[]>("list_dirs", { path: n.path }), n.depth + 1);
+    n.loaded = true;
+  }
+  n.expanded = true;
+  renderCdTree();
+}
+function collapseCdNode(n: CdNode): void {
+  n.expanded = false;
+  renderCdTree();
+}
+async function toggleCdNode(n: CdNode): Promise<void> {
+  if (n.expanded) collapseCdNode(n);
+  else await expandCdNode(n);
+}
+
+function moveCdSelection(delta: number): void {
+  if (!cdVisible.length) return;
+  cdSelected = Math.max(0, Math.min(cdVisible.length - 1, cdSelected + delta));
+  renderCdTree();
+}
+
+// Insert the chosen directory as the cd argument, replacing whatever is on the line.
+// Never appends a newline — the user's own shell runs it when they press Enter (§13).
+function chooseCd(n: CdNode): void {
+  const t = activeTab();
+  closeCdTree();
+  if (!t) return;
+  const prefix = cdRoot.endsWith("/") ? cdRoot : `${cdRoot}/`;
+  const rel = n.path.startsWith(prefix) ? n.path.slice(prefix.length) : n.path;
+  // Quote if the path has shell-significant characters.
+  const arg = /[\s'"$`\\()|&;<>*?]/.test(rel) ? `'${rel.replace(/'/g, `'\\''`)}'` : rel;
+  // Replace the current line: erase the tracked keystrokes, then write `cd <arg>`.
+  const erase = "\x7f".repeat(t.typed.length);
+  void invoke("write_session", {
+    session: t.id,
+    data: bytesToB64(encoder.encode(`${erase}cd ${arg} `)),
+  });
+  t.term.focus();
+}
+
+cdBody.addEventListener("keydown", (e) => {
+  if (e.ctrlKey || e.altKey || e.metaKey) return;
+  const n = cdVisible[cdSelected];
+  switch (e.key) {
+    case "ArrowDown":
+    case "j":
+      moveCdSelection(1);
+      break;
+    case "ArrowUp":
+    case "k":
+      moveCdSelection(-1);
+      break;
+    case "ArrowRight":
+    case "l":
+      if (n && !n.expanded) void expandCdNode(n);
+      break;
+    case "ArrowLeft":
+    case "h":
+      if (n && n.expanded) collapseCdNode(n);
+      break;
+    case "Enter":
+      if (n) chooseCd(n);
+      break;
+    case "Escape":
+      closeCdTree();
+      break;
+    default:
+      return;
+  }
+  e.preventDefault();
+});
+document.getElementById("cdtree-close")!.addEventListener("click", closeCdTree);
+cdEl.addEventListener("mousedown", (e) => {
+  if (e.target === cdEl) closeCdTree(); // click backdrop to dismiss
+});
+
+// The enhance shortcut (Ctrl+Shift+E) is overloaded: a typed `cd` opens the directory
+// tree picker; anything else runs the ps output decorator.
+function enhanceShortcut(): void {
+  const first = (activeTab()?.typed.trimStart() ?? "").split(/\s+/)[0];
+  if (first === "cd") void openCdTree();
+  else void enhancePs();
+}
 
 // ── Live man panel (DESIGN.md §10.2) ─────────────────────────────────────────
 // As you type a command, show `man <cmd>` beside the terminal. Robust because the
@@ -1785,7 +1972,7 @@ function rebuildBindings(): void {
     [parseChord(kb.zoom_reset), () => zoom(null)],
     [parseChord(kb.help), toggleHelp],
     [parseChord(kb.ai), openAi],
-    [parseChord(kb.enhance_ps), () => void enhancePs()],
+    [parseChord(kb.enhance_ps), enhanceShortcut],
     [parseChord(kb.explain), () => void explainCurrent()],
   ];
 }

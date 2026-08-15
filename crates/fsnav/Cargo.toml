@@ -1,0 +1,12 @@
+[package]
+name = "sampa-fsnav"
+version = "0.1.0"
+edition = "2021"
+description = "Read-only directory navigation for the cd tree picker. Headless — no shell, no Tauri."
+license = "MIT"
+
+# Pure std::fs behind serde-able types (serde only for the IPC model, like ps-decorate).
+# Lists immediate subdirectories so the frontend can build a lazily-expanded tree; the
+# chosen path is inserted at the prompt, never executed. No Tauri/webview imports.
+[dependencies]
+serde = { version = "1", features = ["derive"] }

@@ -789,3 +789,95 @@ body {
 #explain-body.explain-muted {
   color: #7a819e;
 }
+
+/* cd tree picker (Ctrl+Shift+E while a `cd` command is typed). A directory tree rooted at
+   the session cwd; choosing a node inserts it as the cd argument — never executed. */
+#cdtree {
+  position: fixed;
+  inset: 0;
+  z-index: 97;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 10vh;
+  background: rgba(0, 0, 0, 0.45);
+}
+#cdtree[hidden] {
+  display: none;
+}
+.cdtree-box {
+  width: min(560px, 92%);
+  max-height: 74vh;
+  display: flex;
+  flex-direction: column;
+  background: #1a1b26;
+  border: 1px solid #2a2e42;
+  border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.cdtree-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #2a2e42;
+  color: #7dcfff;
+  font: 12px ui-monospace, monospace;
+}
+.cdtree-head span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cdtree-head button {
+  border: none;
+  background: transparent;
+  color: #7a819e;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+.cdtree-head button:hover {
+  color: #c0caf5;
+}
+#cdtree-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 4px 0;
+  outline: none;
+}
+.cd-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 14px;
+  color: #c0caf5;
+  font: 13px ui-monospace, monospace;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.cd-row:hover {
+  background: #1e2030;
+}
+.cd-row.cd-sel {
+  background: #283457;
+}
+.cd-arrow {
+  width: 1em;
+  flex: 0 0 auto;
+  color: #565f89;
+  text-align: center;
+}
+.cd-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cdtree-hint {
+  padding: 6px 14px;
+  border-top: 1px solid #2a2e42;
+  color: #565f89;
+  font: 11px ui-sans-serif, system-ui, sans-serif;
+}

@@ -27,4 +27,5 @@ sampa-man = { path = "../crates/man" }
 sampa-preview = { path = "../crates/preview" }
 sampa-ai = { path = "../crates/ai" }
 sampa-ps-decorate = { path = "../crates/ps-decorate" }
+sampa-fsnav = { path = "../crates/fsnav" }
 tokio = { version = "1", features = ["rt"] }
