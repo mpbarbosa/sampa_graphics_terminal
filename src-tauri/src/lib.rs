@@ -492,6 +492,20 @@ fn du_output(path: &str) -> Option<String> {
     }
 }
 
+/// Memory/swap stats for the `free` gauge view (read-only). Runs `free -k` and parses it
+/// (`sampa_freemem`). `free` reads `/proc/meminfo` and returns instantly, so no timeout is
+/// needed. No shell; nothing is executed on the user's behalf.
+#[tauri::command]
+fn run_free() -> Result<sampa_freemem::FreeInfo, String> {
+    let out = std::process::Command::new("free")
+        .args(["-k"])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .map_err(|e| format!("could not run free: {e}"))?;
+    sampa_freemem::parse_free(&String::from_utf8_lossy(&out.stdout))
+        .ok_or_else(|| "could not parse free output".to_string())
+}
+
 /// Immediate subdirectories of `path`, for the `cd` tree picker (read-only, no shell).
 /// The frontend calls this on the session cwd and again per expanded node to lazily grow
 /// the tree; the chosen directory is inserted at the prompt, never executed. Best-effort:
@@ -758,6 +772,7 @@ pub fn run() {
             ps_enrich,
             list_dirs,
             run_du,
+            run_free,
             open_url,
             suggest_command,
             explain_command,

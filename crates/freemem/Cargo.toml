@@ -1,0 +1,12 @@
+[package]
+name = "sampa-freemem"
+version = "0.1.0"
+edition = "2021"
+description = "Parse free(1) output into memory/swap stats for the disk-usage gauge view."
+license = "MIT"
+
+# Headless parse core — turns `free -k` output into structured Mem/Swap stats the frontend
+# renders as gauges. Pure (serde only, for the IPC model); no shell, no Tauri. Fails safe
+# to None on malformed input, mirroring the ps-decorate / dumap discipline.
+[dependencies]
+serde = { version = "1", features = ["derive"] }

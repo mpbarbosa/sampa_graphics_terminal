@@ -88,6 +88,25 @@ interface DuNode {
   children: DuNode[];
 }
 
+// Memory/swap stats from run_free (KiB), for the free gauge view.
+interface MemStats {
+  total_kb: number;
+  used_kb: number;
+  free_kb: number;
+  shared_kb: number;
+  buff_cache_kb: number;
+  available_kb: number;
+}
+interface SwapStats {
+  total_kb: number;
+  used_kb: number;
+  free_kb: number;
+}
+interface FreeInfo {
+  mem: MemStats;
+  swap: SwapStats | null;
+}
+
 // Per-process detail from the ps_enrich query (spec §6 detail pane).
 interface PsDetail {
   pid: number;
@@ -827,7 +846,7 @@ const HELP_ACTIONS: Array<[string, string]> = [
   ["palette", "Command palette"],
   ["toggle_man", "Toggle man-page panel"],
   ["toggle_preview", "Toggle command preview"],
-  ["enhance_ps", "Enhance ps / cd tree / du treemap"],
+  ["enhance_ps", "Enhance ps / cd tree / du treemap / free gauge"],
   ["explain", "Explain typed command (AI)"],
   ["zoom_in", "Zoom in"],
   ["zoom_out", "Zoom out"],
@@ -1233,8 +1252,131 @@ function enhanceShortcut(): void {
   const first = (activeTab()?.typed.trimStart() ?? "").split(/\s+/)[0];
   if (first === "cd") void openCdTree();
   else if (first === "du") void openDuMap();
+  else if (first === "free") void openFreeGauge();
   else void enhancePs();
 }
+
+// ── free memory gauge (Ctrl+Shift+E while a `free` command is typed) ──────────
+// Runs a read-only `free -k` (run_free) and shows RAM + swap as proportional segmented
+// gauges. Purely informational — there's no command to compose, so it just displays.
+const freeEl = document.getElementById("freegauge")!;
+const freeBody = document.getElementById("free-body")!;
+
+function closeFreeGauge(): void {
+  if (freeEl.hidden) return;
+  freeEl.hidden = true;
+  activeTab()?.term.focus();
+}
+
+interface Seg {
+  label: string;
+  kb: number;
+  cls: string;
+}
+// Build one gauge: a title, a proportional segmented bar, and a legend. `extra` items
+// appear in the legend only (e.g. "available", which overlaps used/cache and isn't a
+// segment). textContent throughout.
+function buildGauge(title: string, total: number, segs: Seg[], extra: Seg[]): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "free-gauge";
+
+  const titleRow = document.createElement("div");
+  titleRow.className = "free-gauge-title";
+  const name = document.createElement("span");
+  name.textContent = title;
+  const sub = document.createElement("span");
+  sub.className = "free-sub";
+  const usedish = segs[0];
+  const pct = total > 0 ? Math.round((usedish.kb / total) * 100) : 0;
+  sub.textContent = `${fmtKb(usedish.kb)} ${usedish.label} of ${fmtKb(total)} (${pct}%)`;
+  titleRow.append(name, sub);
+  wrap.appendChild(titleRow);
+
+  const bar = document.createElement("div");
+  bar.className = "free-bar";
+  for (const s of segs) {
+    const el = document.createElement("div");
+    el.className = `seg ${s.cls}`;
+    el.style.flexGrow = String(Math.max(0, s.kb));
+    el.style.flexBasis = "0";
+    el.title = `${s.label}: ${fmtKb(s.kb)}`;
+    bar.appendChild(el);
+  }
+  wrap.appendChild(bar);
+
+  const legend = document.createElement("div");
+  legend.className = "free-legend";
+  for (const s of [...segs, ...extra]) {
+    const item = document.createElement("span");
+    item.className = "item";
+    const sw = document.createElement("span");
+    sw.className = `swatch ${s.cls}`;
+    const txt = document.createElement("span");
+    const p = total > 0 ? Math.round((s.kb / total) * 100) : 0;
+    txt.textContent = `${s.label} ${fmtKb(s.kb)} (${p}%)`;
+    item.append(sw, txt);
+    legend.appendChild(item);
+  }
+  wrap.appendChild(legend);
+  return wrap;
+}
+
+function renderFreeGauge(info: FreeInfo): void {
+  freeBody.replaceChildren();
+  const m = info.mem;
+  freeBody.appendChild(
+    buildGauge(
+      "RAM",
+      m.total_kb,
+      [
+        { label: "used", kb: m.used_kb, cls: "seg-used" },
+        { label: "buff/cache", kb: m.buff_cache_kb, cls: "seg-cache" },
+        { label: "free", kb: m.free_kb, cls: "seg-free" },
+      ],
+      // "available" overlaps used/cache (free + reclaimable), so it's legend-only.
+      [{ label: "available", kb: m.available_kb, cls: "seg-avail" }],
+    ),
+  );
+  if (info.swap && info.swap.total_kb > 0) {
+    const s = info.swap;
+    freeBody.appendChild(
+      buildGauge(
+        "Swap",
+        s.total_kb,
+        [
+          { label: "used", kb: s.used_kb, cls: "sw-used" },
+          { label: "free", kb: s.free_kb, cls: "sw-free" },
+        ],
+        [],
+      ),
+    );
+  }
+}
+
+async function openFreeGauge(): Promise<void> {
+  freeBody.replaceChildren();
+  freeBody.textContent = "Reading memory…";
+  freeEl.hidden = false;
+  freeBody.focus();
+  try {
+    const info = await invoke<FreeInfo>("run_free");
+    if (freeEl.hidden) return; // dismissed
+    renderFreeGauge(info);
+  } catch (e) {
+    if (!freeEl.hidden) freeBody.textContent = String(e);
+  }
+}
+
+document.getElementById("free-close")!.addEventListener("click", closeFreeGauge);
+freeEl.addEventListener("mousedown", (e) => {
+  if (e.target === freeEl) closeFreeGauge(); // click backdrop to dismiss
+});
+freeBody.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" || e.key === "Enter") {
+    e.preventDefault();
+    closeFreeGauge();
+  }
+});
 
 // ── du disk-usage treemap (Ctrl+Shift+E while a `du` command is typed) ────────
 // Runs a read-only, timeout-bounded `du` on the cwd (run_du) and renders its tree as a
