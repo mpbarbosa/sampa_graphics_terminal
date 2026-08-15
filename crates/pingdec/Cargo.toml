@@ -1,0 +1,13 @@
+[package]
+name = "sampa-pingdec"
+version = "0.1.0"
+edition = "2021"
+description = "Parse ping(8) output into a latency series + summary for the ping chart view."
+license = "MIT"
+
+# Headless parse core — turns `ping` output into per-packet RTTs plus the transmitted/
+# received/loss and rtt min/avg/max/mdev summary, for the frontend to draw a latency chart.
+# Pure (serde only, for the IPC model); no shell, no Tauri. Fails safe to None on input
+# that isn't ping, mirroring the ps-decorate / dumap / freemem discipline.
+[dependencies]
+serde = { version = "1", features = ["derive"] }

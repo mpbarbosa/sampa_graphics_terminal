@@ -2707,6 +2707,13 @@ name = "sampa-palette"
 version = "0.1.0"
 
 [[package]]
+name = "sampa-pingdec"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "sampa-preview"
 version = "0.1.0"
 dependencies = [
@@ -2739,6 +2746,7 @@ dependencies = [
  "sampa-fsnav",
  "sampa-man",
  "sampa-palette",
+ "sampa-pingdec",
  "sampa-preview",
  "sampa-ps-decorate",
  "sampa-shellint",

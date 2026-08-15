@@ -492,6 +492,56 @@ fn du_output(path: &str) -> Option<String> {
     }
 }
 
+/// Latency data for the `ping` chart view: run a **bounded** `ping` to `host` and parse it
+/// (`sampa_pingdec`). Bounded by `-c 20 -i 0.2 -w 8` (≈20 packets, ~4s, hard 8s deadline)
+/// and a process-timeout backstop; runs off the async runtime. `host` is passed as a lone
+/// argv (no shell), and a leading `-` is rejected so it can't be read as a ping flag.
+#[tauri::command]
+async fn run_ping(host: String) -> Result<sampa_pingdec::PingReport, String> {
+    let host = host.trim().to_string();
+    if host.is_empty() || host.starts_with('-') {
+        return Err("no host to ping".into());
+    }
+    tokio::task::spawn_blocking(move || {
+        let out = ping_output(&host).ok_or_else(|| "ping timed out or failed".to_string())?;
+        sampa_pingdec::parse_ping(&out).ok_or_else(|| "no ping replies".to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Run `ping -c 20 -i 0.2 -w 8 <host>`, killed at 12s as a backstop. Returns stdout, or
+/// `None` on spawn failure / timeout. No shell.
+fn ping_output(host: &str) -> Option<String> {
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+    let mut child = Command::new("ping")
+        .args(["-c", "20", "-i", "0.2", "-w", "8", host])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let mut stdout = child.stdout.take()?;
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut s = String::new();
+        let _ = stdout.read_to_string(&mut s);
+        let _ = tx.send(s);
+    });
+    match rx.recv_timeout(std::time::Duration::from_secs(12)) {
+        Ok(s) => {
+            let _ = child.wait();
+            Some(s)
+        }
+        Err(_) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            None
+        }
+    }
+}
+
 /// Memory/swap stats for the `free` gauge view (read-only). Runs `free -k` and parses it
 /// (`sampa_freemem`). `free` reads `/proc/meminfo` and returns instantly, so no timeout is
 /// needed. No shell; nothing is executed on the user's behalf.
@@ -773,6 +823,7 @@ pub fn run() {
             list_dirs,
             run_du,
             run_free,
+            run_ping,
             open_url,
             suggest_command,
             explain_command,
