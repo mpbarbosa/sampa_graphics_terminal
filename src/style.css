@@ -981,3 +981,121 @@ body {
   color: #565f89;
   font: 11px ui-sans-serif, system-ui, sans-serif;
 }
+
+/* free memory gauge (Ctrl+Shift+E while a `free` command is typed). Proportional
+   segmented bars for RAM and swap. Read-only/informational. */
+#freegauge {
+  position: fixed;
+  inset: 0;
+  z-index: 98;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+  background: rgba(0, 0, 0, 0.45);
+}
+#freegauge[hidden] {
+  display: none;
+}
+.free-box {
+  width: min(560px, 92%);
+  display: flex;
+  flex-direction: column;
+  background: #1a1b26;
+  border: 1px solid #2a2e42;
+  border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.free-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid #2a2e42;
+  color: #c0caf5;
+  font: 600 14px ui-sans-serif, system-ui, sans-serif;
+}
+.free-head button {
+  border: none;
+  background: transparent;
+  color: #7a819e;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+}
+.free-head button:hover {
+  color: #c0caf5;
+}
+#free-body {
+  padding: 14px;
+  outline: none;
+}
+.free-gauge {
+  margin-bottom: 16px;
+}
+.free-gauge:last-child {
+  margin-bottom: 0;
+}
+.free-gauge-title {
+  display: flex;
+  justify-content: space-between;
+  color: #c0caf5;
+  font: 13px ui-monospace, monospace;
+  margin-bottom: 6px;
+}
+.free-gauge-title .free-sub {
+  color: #7a819e;
+}
+.free-bar {
+  display: flex;
+  height: 26px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #16161e;
+}
+.free-bar .seg {
+  min-width: 0;
+}
+.free-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-top: 8px;
+  color: #a9b1d6;
+  font: 12px ui-sans-serif, system-ui, sans-serif;
+}
+.free-legend .item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.free-legend .swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+.free-legend .muted {
+  color: #7a819e;
+}
+.seg-used,
+.sw-used {
+  background: #f7768e;
+}
+.seg-cache {
+  background: #7aa2f7;
+}
+.seg-free,
+.sw-free {
+  background: #2a2e42;
+}
+.seg-avail {
+  background: #9ece6a;
+}
+.free-hint {
+  padding: 6px 14px;
+  border-top: 1px solid #2a2e42;
+  color: #565f89;
+  font: 11px ui-sans-serif, system-ui, sans-serif;
+}

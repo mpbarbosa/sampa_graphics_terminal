@@ -29,4 +29,5 @@ sampa-ai = { path = "../crates/ai" }
 sampa-ps-decorate = { path = "../crates/ps-decorate" }
 sampa-fsnav = { path = "../crates/fsnav" }
 sampa-dumap = { path = "../crates/dumap" }
+sampa-freemem = { path = "../crates/freemem" }
 tokio = { version = "1", features = ["rt"] }
