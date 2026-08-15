@@ -1,0 +1,12 @@
+[package]
+name = "sampa-dfdec"
+version = "0.1.0"
+edition = "2021"
+description = "Parse df(1) output into per-filesystem usage for the disk-free gauge view."
+license = "MIT"
+
+# Headless parse core — turns `df -k` output into per-filesystem size/used/avail/use% rows
+# the frontend renders as gauges. Pure (serde only, for the IPC model); no shell, no Tauri.
+# Fails safe to None when the header isn't df's, mirroring ps-decorate / dumap / freemem.
+[dependencies]
+serde = { version = "1", features = ["derive"] }

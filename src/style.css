@@ -1179,3 +1179,97 @@ body {
   color: #565f89;
   font: 11px ui-sans-serif, system-ui, sans-serif;
 }
+
+/* df disk-free gauge (Ctrl+Shift+E while a `df` command is typed). One proportional bar
+   per filesystem (used / reserved / free), coloured by use%. Read-only/informational. */
+#dfgauge {
+  position: fixed;
+  inset: 0;
+  z-index: 98;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 10vh;
+  background: rgba(0, 0, 0, 0.45);
+}
+#dfgauge[hidden] {
+  display: none;
+}
+.df-box {
+  width: min(620px, 94%);
+  max-height: 78vh;
+  display: flex;
+  flex-direction: column;
+  background: #1a1b26;
+  border: 1px solid #2a2e42;
+  border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.df-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid #2a2e42;
+  color: #c0caf5;
+  font: 600 14px ui-sans-serif, system-ui, sans-serif;
+}
+.df-head button {
+  border: none;
+  background: transparent;
+  color: #7a819e;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+}
+.df-head button:hover {
+  color: #c0caf5;
+}
+#df-body {
+  padding: 8px 14px 14px;
+  overflow-y: auto;
+  outline: none;
+}
+.df-fs {
+  margin-top: 12px;
+}
+.df-fs-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+  font: 12px ui-monospace, monospace;
+}
+.df-mount {
+  color: #c0caf5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.df-stat {
+  color: #7a819e;
+  flex: 0 0 auto;
+}
+.df-bar {
+  display: flex;
+  height: 20px;
+  border-radius: 5px;
+  overflow: hidden;
+  background: #16161e;
+}
+.df-bar .seg {
+  min-width: 0;
+}
+.df-seg-reserved {
+  background: #414868;
+}
+.df-seg-free {
+  background: #2a2e42;
+}
+.df-hint {
+  padding: 6px 14px;
+  border-top: 1px solid #2a2e42;
+  color: #565f89;
+  font: 11px ui-sans-serif, system-ui, sans-serif;
+}
