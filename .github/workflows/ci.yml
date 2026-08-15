@@ -26,7 +26,7 @@ jobs:
       - name: Test headless crates
         run: |
           set -e
-          for crate in pty-core config cli shellint palette man preview ai ps-decorate fsnav; do
+          for crate in pty-core config cli shellint palette man preview ai ps-decorate fsnav dumap; do
             echo "::group::cargo test $crate"
             cargo test --manifest-path "crates/$crate/Cargo.toml"
             echo "::endgroup::"

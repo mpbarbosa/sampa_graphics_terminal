@@ -80,6 +80,14 @@ interface Dir {
   path: string;
 }
 
+// A node in the du disk-usage tree (from run_du), sized in KiB.
+interface DuNode {
+  name: string;
+  path: string;
+  size_kb: number;
+  children: DuNode[];
+}
+
 // Per-process detail from the ps_enrich query (spec §6 detail pane).
 interface PsDetail {
   pid: number;
@@ -819,7 +827,7 @@ const HELP_ACTIONS: Array<[string, string]> = [
   ["palette", "Command palette"],
   ["toggle_man", "Toggle man-page panel"],
   ["toggle_preview", "Toggle command preview"],
-  ["enhance_ps", "Enhance ps output / cd tree"],
+  ["enhance_ps", "Enhance ps / cd tree / du treemap"],
   ["explain", "Explain typed command (AI)"],
   ["zoom_in", "Zoom in"],
   ["zoom_out", "Zoom out"],
@@ -1224,8 +1232,221 @@ cdEl.addEventListener("mousedown", (e) => {
 function enhanceShortcut(): void {
   const first = (activeTab()?.typed.trimStart() ?? "").split(/\s+/)[0];
   if (first === "cd") void openCdTree();
+  else if (first === "du") void openDuMap();
   else void enhancePs();
 }
+
+// ── du disk-usage treemap (Ctrl+Shift+E while a `du` command is typed) ────────
+// Runs a read-only, timeout-bounded `du` on the cwd (run_du) and renders its tree as a
+// squarified treemap: bigger box = more disk. Click a box to zoom into that directory,
+// Backspace to go up, Enter to `cd` to the directory you've navigated to (inserted, never
+// run). The squarify layout is a rendering concern (pixel-dependent), so it lives here;
+// the core only parses du into the sized tree.
+const duEl = document.getElementById("dumap")!;
+const duCrumb = document.getElementById("dumap-crumb")!;
+const duBody = document.getElementById("dumap-body")!;
+const SVG_NS = "http://www.w3.org/2000/svg";
+// A muted, theme-consistent palette cycled across top-level boxes.
+const DU_COLORS = ["#7aa2f7", "#9ece6a", "#e0af68", "#bb9af7", "#7dcfff", "#f7768e", "#a9b1d6"];
+let duStack: DuNode[] = []; // view stack; last element is the current (zoomed) directory
+
+function closeDuMap(): void {
+  if (duEl.hidden) return;
+  duEl.hidden = true;
+  duStack = [];
+  activeTab()?.term.focus();
+}
+
+async function openDuMap(): Promise<void> {
+  const t = activeTab();
+  if (!t) return;
+  const cwd = (await invoke<string | null>("get_session_cwd", { session: t.id })) ?? null;
+  if (!cwd) return;
+  duCrumb.textContent = "Scanning disk usage…";
+  duBody.replaceChildren();
+  duBody.textContent = "Running du…";
+  duEl.hidden = false;
+  duBody.focus();
+  try {
+    const root = await invoke<DuNode>("run_du", { path: cwd });
+    if (duEl.hidden) return; // dismissed while scanning
+    duStack = [root];
+    renderDuMap();
+  } catch (e) {
+    if (!duEl.hidden) duBody.textContent = String(e);
+  }
+}
+
+interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+// Squarified treemap (Bruls et al.): lay `areas` (already sorted desc) into `rect`,
+// keeping each cell's aspect ratio near 1. Returns one rect per area, in the same order.
+function squarify(areas: number[], rect: Rect): Rect[] {
+  const rects: Rect[] = [];
+  let free = { ...rect };
+  let i = 0;
+  const worst = (row: number[], side: number): number => {
+    const sum = row.reduce((a, b) => a + b, 0);
+    const max = Math.max(...row);
+    const min = Math.min(...row);
+    const s2 = sum * sum;
+    const side2 = side * side;
+    return Math.max((side2 * max) / s2, s2 / (side2 * min));
+  };
+  while (i < areas.length) {
+    const vertical = free.w > free.h; // wide → stack a column at the left
+    const side = vertical ? free.h : free.w;
+    const row = [areas[i]];
+    i++;
+    while (i < areas.length && worst([...row, areas[i]], side) <= worst(row, side)) {
+      row.push(areas[i]);
+      i++;
+    }
+    const rowSum = row.reduce((a, b) => a + b, 0);
+    if (vertical) {
+      const colW = free.h > 0 ? rowSum / free.h : 0;
+      let yy = free.y;
+      for (const a of row) {
+        const rh = colW > 0 ? a / colW : 0;
+        rects.push({ x: free.x, y: yy, w: colW, h: rh });
+        yy += rh;
+      }
+      free = { x: free.x + colW, y: free.y, w: free.w - colW, h: free.h };
+    } else {
+      const rowH = free.w > 0 ? rowSum / free.w : 0;
+      let xx = free.x;
+      for (const a of row) {
+        const rw = rowH > 0 ? a / rowH : 0;
+        rects.push({ x: xx, y: free.y, w: rw, h: rowH });
+        xx += rw;
+      }
+      free = { x: free.x, y: free.y + rowH, w: free.w, h: free.h - rowH };
+    }
+  }
+  return rects;
+}
+
+function renderDuCrumb(): void {
+  duCrumb.replaceChildren();
+  duStack.forEach((node, i) => {
+    if (i > 0) {
+      const sep = document.createElement("span");
+      sep.className = "du-sep";
+      sep.textContent = " / ";
+      duCrumb.appendChild(sep);
+    }
+    const seg = document.createElement("span");
+    seg.className = "du-seg";
+    seg.textContent = `${node.name} (${fmtKb(node.size_kb)})`;
+    seg.addEventListener("click", () => {
+      duStack = duStack.slice(0, i + 1); // jump back to this level
+      renderDuMap();
+    });
+    duCrumb.appendChild(seg);
+  });
+}
+
+function renderDuMap(): void {
+  renderDuCrumb();
+  const node = duStack[duStack.length - 1];
+  duBody.replaceChildren();
+  const W = duBody.clientWidth - 12; // minus padding
+  const H = duBody.clientHeight - 12;
+  if (W <= 0 || H <= 0) return;
+
+  // Cells: child directories, plus a non-navigable remainder for this dir's own files.
+  type Cell = { node: DuNode | null; size: number; label: string };
+  const cells: Cell[] = node.children
+    .filter((c) => c.size_kb > 0)
+    .map((c) => ({ node: c, size: c.size_kb, label: c.name }));
+  const childSum = node.children.reduce((a, c) => a + c.size_kb, 0);
+  const own = node.size_kb - childSum;
+  if (own > 0 && cells.length > 0) cells.push({ node: null, size: own, label: "(files here)" });
+  if (cells.length === 0) {
+    duBody.textContent = `${node.name} — ${fmtKb(node.size_kb)}, no subdirectories`;
+    return;
+  }
+
+  const rects = squarify(cells.map((c) => c.size), { x: 6, y: 6, w: W, h: H });
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.id = "dumap-svg";
+  svg.setAttribute("viewBox", `0 0 ${W + 12} ${H + 12}`);
+  cells.forEach((cell, i) => {
+    const r = rects[i];
+    if (r.w < 1 || r.h < 1) return;
+    const g = document.createElementNS(SVG_NS, "g");
+    const navigable = !!cell.node && cell.node.children.length > 0;
+    g.setAttribute("class", navigable ? "du-cell" : "du-cell du-leaf");
+    const rect = document.createElementNS(SVG_NS, "rect");
+    rect.setAttribute("x", String(r.x));
+    rect.setAttribute("y", String(r.y));
+    rect.setAttribute("width", String(r.w));
+    rect.setAttribute("height", String(r.h));
+    rect.setAttribute("fill", cell.node ? DU_COLORS[i % DU_COLORS.length] : "#414868");
+    g.appendChild(rect);
+    // Label only when the box is big enough to read.
+    if (r.w > 46 && r.h > 18) {
+      const label = document.createElementNS(SVG_NS, "text");
+      label.setAttribute("x", String(r.x + 4));
+      label.setAttribute("y", String(r.y + 14));
+      label.textContent = `${cell.label} ${fmtKb(cell.size)}`;
+      g.appendChild(label);
+    }
+    const title = document.createElementNS(SVG_NS, "title");
+    title.textContent = `${cell.label} — ${fmtKb(cell.size)}`; // hover tooltip
+    g.appendChild(title);
+    if (navigable) {
+      g.addEventListener("click", () => {
+        duStack.push(cell.node!);
+        renderDuMap();
+      });
+    }
+    svg.appendChild(g);
+  });
+  duBody.appendChild(svg);
+}
+
+// cd to the directory currently in view (Enter). Inserted at the prompt, never run.
+function cdToDuView(): void {
+  const node = duStack[duStack.length - 1];
+  const t = activeTab();
+  if (!node || !t) return;
+  closeDuMap();
+  const arg = /[\s'"$`\\()|&;<>*?]/.test(node.path)
+    ? `'${node.path.replace(/'/g, `'\\''`)}'`
+    : node.path;
+  const erase = "\x7f".repeat(t.typed.length);
+  void invoke("write_session", {
+    session: t.id,
+    data: bytesToB64(encoder.encode(`${erase}cd ${arg} `)),
+  });
+  t.term.focus();
+}
+
+duBody.addEventListener("keydown", (e) => {
+  if (e.ctrlKey || e.altKey || e.metaKey) return;
+  if (e.key === "Backspace") {
+    if (duStack.length > 1) {
+      duStack.pop();
+      renderDuMap();
+    }
+  } else if (e.key === "Enter") {
+    cdToDuView();
+  } else if (e.key === "Escape") {
+    closeDuMap();
+  } else {
+    return;
+  }
+  e.preventDefault();
+});
+document.getElementById("dumap-close")!.addEventListener("click", closeDuMap);
+duEl.addEventListener("mousedown", (e) => {
+  if (e.target === duEl) closeDuMap(); // click backdrop to dismiss
+});
 
 // ── Live man panel (DESIGN.md §10.2) ─────────────────────────────────────────
 // As you type a command, show `man <cmd>` beside the terminal. Robust because the

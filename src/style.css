@@ -881,3 +881,103 @@ body {
   color: #565f89;
   font: 11px ui-sans-serif, system-ui, sans-serif;
 }
+
+/* du disk-usage treemap (Ctrl+Shift+E while a `du` command is typed). A squarified
+   treemap of the cwd's disk usage; click a box to zoom, Enter to cd there. Read-only. */
+#dumap {
+  position: fixed;
+  inset: 0;
+  z-index: 98;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 8vh;
+  background: rgba(0, 0, 0, 0.45);
+}
+#dumap[hidden] {
+  display: none;
+}
+.dumap-box {
+  width: min(760px, 94%);
+  height: 76vh;
+  display: flex;
+  flex-direction: column;
+  background: #1a1b26;
+  border: 1px solid #2a2e42;
+  border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.dumap-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #2a2e42;
+  color: #7dcfff;
+  font: 12px ui-monospace, monospace;
+}
+#dumap-crumb {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#dumap-crumb .du-seg {
+  cursor: pointer;
+}
+#dumap-crumb .du-seg:hover {
+  text-decoration: underline;
+}
+#dumap-crumb .du-sep {
+  color: #565f89;
+}
+.dumap-head button {
+  border: none;
+  background: transparent;
+  color: #7a819e;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+.dumap-head button:hover {
+  color: #c0caf5;
+}
+#dumap-body {
+  flex: 1 1 auto;
+  position: relative;
+  min-height: 0;
+  padding: 6px;
+  outline: none;
+  color: #7a819e;
+  font: 12px ui-sans-serif, system-ui, sans-serif;
+}
+#dumap-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.du-cell rect {
+  stroke: #16161e;
+  stroke-width: 1;
+  cursor: pointer;
+}
+.du-cell.du-leaf rect {
+  cursor: default;
+}
+.du-cell text {
+  fill: #16161e;
+  font: 11px ui-sans-serif, system-ui, sans-serif;
+  pointer-events: none;
+}
+.du-cell:hover rect {
+  stroke: #c0caf5;
+  stroke-width: 2;
+}
+.dumap-hint {
+  padding: 6px 14px;
+  border-top: 1px solid #2a2e42;
+  color: #565f89;
+  font: 11px ui-sans-serif, system-ui, sans-serif;
+}
