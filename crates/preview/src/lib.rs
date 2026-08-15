@@ -37,7 +37,7 @@ const BANNED: &[&str] = &[
 const ALLOWLIST: &[&str] = &[
     "ls", "cat", "head", "tail", "grep", "egrep", "fgrep", "echo", "printf", "pwd",
     "date", "whoami", "id", "uname", "hostname", "nproc", "uptime", "wc", "sort",
-    "uniq", "cut", "tr", "column", "tree", "stat", "file", "du", "df", "printenv",
+    "uniq", "cut", "tr", "column", "tree", "stat", "file", "df", "printenv",
     "which", "type", "basename", "dirname", "realpath", "readlink", "ps", "lsblk",
     "free", "git", "tac", "nl", "rev", "fold", "comm", "seq", "find", "cksum",
     "md5sum", "sha256sum", "env",
@@ -218,6 +218,14 @@ mod tests {
         ] {
             assert!(allowed(ok), "should allow: {ok}");
         }
+    }
+
+    #[test]
+    fn du_is_not_previewed() {
+        // `du` was dropped from the allowlist: on a large tree it dominates the preview's
+        // timeout budget, and the du treemap (Ctrl+Shift+E) is the intended way to run it.
+        assert!(!allowed("du"), "du should not auto-preview");
+        assert!(!allowed("du -sh"), "du -sh should not auto-preview");
     }
 
     #[test]
