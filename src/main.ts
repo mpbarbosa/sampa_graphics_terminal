@@ -1371,7 +1371,14 @@ function renderDuMap(): void {
     return;
   }
 
-  const rects = squarify(cells.map((c) => c.size), { x: 6, y: 6, w: W, h: H });
+  // squarify expects areas summing to the rect's pixel area — scale the raw KiB sizes so
+  // total area == W*H (otherwise the first box overflows and the rest land off-screen).
+  const totalSize = cells.reduce((a, c) => a + c.size, 0);
+  const scale = totalSize > 0 ? (W * H) / totalSize : 0;
+  const rects = squarify(
+    cells.map((c) => c.size * scale),
+    { x: 6, y: 6, w: W, h: H },
+  );
   const svg = document.createElementNS(SVG_NS, "svg");
   svg.id = "dumap-svg";
   svg.setAttribute("viewBox", `0 0 ${W + 12} ${H + 12}`);
