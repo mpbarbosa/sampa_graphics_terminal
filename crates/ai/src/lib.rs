@@ -389,6 +389,79 @@ pub fn explain_over_network(params: &Params, req: &ExplainRequest) -> Result<Str
     explain(&UreqTransport, params, req)
 }
 
+// ── Analyze a screenshot (multimodal) ────────────────────────────────────────
+// Send a captured image of the app's own window plus a prompt, and return the model's
+// prose analysis. Same opt-in / key-from-env / single-POST discipline; the result is shown
+// read-only. Note: a screenshot is a heavy egress — it carries whatever is on screen — so
+// the caller must gate this behind explicit consent, exactly like the text paths.
+
+/// A base64-encoded image to analyze, its media type, and the instruction prompt.
+#[derive(Debug, Clone)]
+pub struct AnalyzeRequest<'a> {
+    /// Base64 (standard, no data: prefix) of the captured image.
+    pub image_base64: &'a str,
+    /// e.g. "image/png" (also image/jpeg, image/webp, image/gif).
+    pub media_type: &'a str,
+    /// What to do with the image, e.g. "analyze this screenshot and list the issues".
+    pub prompt: &'a str,
+}
+
+fn analyze_system_prompt() -> String {
+    "You are reviewing a screenshot of the Sampa terminal emulator's own UI. Identify \
+concrete visual and UX issues — misalignment, truncation, low contrast, overflow, \
+rendering glitches, awkward spacing — and for each, state the issue and a specific fix. \
+Be concise and specific; if the UI looks correct, say so plainly. Describe fixes; do not \
+claim to have changed anything."
+        .to_string()
+}
+
+fn analyze_build_body(params: &Params, req: &AnalyzeRequest) -> String {
+    serde_json::json!({
+        "model": params.model,
+        "max_tokens": params.max_tokens,
+        "system": analyze_system_prompt(),
+        "messages": [{
+            "role": "user",
+            "content": [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": req.media_type,
+                        "data": req.image_base64
+                    }
+                },
+                { "type": "text", "text": req.prompt }
+            ]
+        }]
+    })
+    .to_string()
+}
+
+/// Ask the model to analyze an image + prompt, returning its prose reply. Generic over
+/// [`Transport`] for no-network tests.
+pub fn analyze<T: Transport>(
+    transport: &T,
+    params: &Params,
+    req: &AnalyzeRequest,
+) -> Result<String, AiError> {
+    let body = analyze_build_body(params, req);
+    let headers = [
+        ("content-type", "application/json"),
+        ("anthropic-version", ANTHROPIC_VERSION),
+        ("x-api-key", params.api_key.as_str()),
+    ];
+    let resp = transport
+        .post(&params.endpoint, &headers, &body)
+        .map_err(AiError::Http)?;
+    parse_text_response(&resp)
+}
+
+/// Convenience: analyze over the real network transport.
+pub fn analyze_over_network(params: &Params, req: &AnalyzeRequest) -> Result<String, AiError> {
+    analyze(&UreqTransport, params, req)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -581,6 +654,37 @@ mod tests {
         let h = t.seen_headers.borrow();
         assert!(h.iter().any(|(k, v)| k == "x-api-key" && v == "sk-test-KEY"));
         assert!(h.iter().any(|(k, v)| k == "anthropic-version"));
+    }
+
+    #[test]
+    fn analyze_sends_image_block_and_prompt() {
+        let t = FakeTransport::new(&ok_text_response("The tab bar has low contrast; darken it."));
+        let req = AnalyzeRequest {
+            image_base64: "aGVsbG8=", // "hello"
+            media_type: "image/png",
+            prompt: "analyze this screenshot and fix the issues",
+        };
+        let out = analyze(&t, &params(), &req).unwrap();
+        assert!(out.contains("contrast"));
+        let body = t.seen_body.borrow();
+        // Multimodal: an image block with base64 + media type, plus the text prompt.
+        assert!(body.contains("\"type\":\"image\""));
+        assert!(body.contains("\"media_type\":\"image/png\""));
+        assert!(body.contains("aGVsbG8="));
+        assert!(body.contains("analyze this screenshot"));
+        // The key never appears in the body.
+        assert!(!body.contains("sk-test-KEY"));
+    }
+
+    #[test]
+    fn analyze_surfaces_refusal_and_parse_errors() {
+        let refused = serde_json::json!({ "stop_reason": "refusal", "content": [] }).to_string();
+        let req = AnalyzeRequest { image_base64: "x", media_type: "image/png", prompt: "p" };
+        assert_eq!(analyze(&FakeTransport::new(&refused), &params(), &req), Err(AiError::Refused));
+        assert!(matches!(
+            analyze(&FakeTransport::new("nope"), &params(), &req),
+            Err(AiError::Parse(_))
+        ));
     }
 
     #[test]
