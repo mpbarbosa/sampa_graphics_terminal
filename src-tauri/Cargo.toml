@@ -32,4 +32,5 @@ sampa-dumap = { path = "../crates/dumap" }
 sampa-freemem = { path = "../crates/freemem" }
 sampa-pingdec = { path = "../crates/pingdec" }
 sampa-dfdec = { path = "../crates/dfdec" }
+sampa-uptimedec = { path = "../crates/uptimedec" }
 tokio = { version = "1", features = ["rt"] }

@@ -132,6 +132,16 @@ interface FsUsage {
   mount: string;
 }
 
+// Load averages + core count from run_uptime, for the load gauge view.
+interface UptimeReport {
+  up: string | null;
+  users: number | null;
+  load1: number;
+  load5: number;
+  load15: number;
+  cores: number;
+}
+
 // Per-process detail from the ps_enrich query (spec §6 detail pane).
 interface PsDetail {
   pid: number;
@@ -871,7 +881,7 @@ const HELP_ACTIONS: Array<[string, string]> = [
   ["palette", "Command palette"],
   ["toggle_man", "Toggle man-page panel"],
   ["toggle_preview", "Toggle command preview"],
-  ["enhance_ps", "Enhance ps / cd / du / free / ping / df"],
+  ["enhance_ps", "Enhance ps / cd / du / free / ping / df / uptime"],
   ["explain", "Explain typed command (AI)"],
   ["zoom_in", "Zoom in"],
   ["zoom_out", "Zoom out"],
@@ -1280,8 +1290,92 @@ function enhanceShortcut(): void {
   else if (first === "free") void openFreeGauge();
   else if (first === "ping") void openPingChart();
   else if (first === "df") void openDfGauge();
+  else if (first === "uptime") void openLoadGauge();
   else void enhancePs();
 }
+
+// ── uptime load gauge (Ctrl+Shift+E while an `uptime` command is typed) ───────
+// Runs a read-only `uptime` (run_uptime) and shows the 1/5/15-minute load averages as bars
+// scaled to the CPU core count (100% = load == cores), coloured by that ratio. Because a
+// load equal to the core count means "fully busy", the per-core view is what makes a load
+// number interpretable. Informational; nothing is composed or run.
+const loadEl = document.getElementById("loadgauge")!;
+const loadSub = document.getElementById("load-sub")!;
+const loadBody = document.getElementById("load-body")!;
+
+function closeLoadGauge(): void {
+  if (loadEl.hidden) return;
+  loadEl.hidden = true;
+  activeTab()?.term.focus();
+}
+
+// Colour band for a load/cores ratio — redundant with bar length.
+function loadBand(ratio: number): string {
+  if (ratio < 0.7) return "#9ece6a";
+  if (ratio < 1.0) return "#e0af68";
+  if (ratio < 1.5) return "#ff9e64";
+  return "#f7768e";
+}
+
+function renderLoadGauge(r: UptimeReport): void {
+  const cores = Math.max(1, r.cores);
+  loadSub.textContent =
+    (r.up ? `up ${r.up} · ` : "") +
+    (r.users != null ? `${r.users} user${r.users === 1 ? "" : "s"} · ` : "") +
+    `${r.cores} cores`;
+  loadBody.replaceChildren();
+  const rows: [string, number][] = [
+    ["1 min", r.load1],
+    ["5 min", r.load5],
+    ["15 min", r.load15],
+  ];
+  for (const [label, load] of rows) {
+    const ratio = load / cores;
+    const row = document.createElement("div");
+    row.className = "load-row";
+    const lab = document.createElement("span");
+    lab.className = "load-label";
+    lab.textContent = label;
+    const track = document.createElement("div");
+    track.className = "load-track";
+    const fill = document.createElement("div");
+    fill.className = "load-fill";
+    fill.style.width = `${Math.min(1, ratio) * 100}%`;
+    fill.style.background = loadBand(ratio);
+    track.appendChild(fill);
+    const val = document.createElement("span");
+    val.className = "load-val";
+    val.textContent = `${load.toFixed(2)} (${Math.round(ratio * 100)}%)`;
+    row.append(lab, track, val);
+    loadBody.appendChild(row);
+  }
+}
+
+async function openLoadGauge(): Promise<void> {
+  loadSub.textContent = "";
+  loadBody.replaceChildren();
+  loadBody.textContent = "Reading load…";
+  loadEl.hidden = false;
+  loadBody.focus();
+  try {
+    const report = await invoke<UptimeReport>("run_uptime");
+    if (loadEl.hidden) return;
+    renderLoadGauge(report);
+  } catch (e) {
+    if (!loadEl.hidden) loadBody.textContent = String(e);
+  }
+}
+
+document.getElementById("load-close")!.addEventListener("click", closeLoadGauge);
+loadEl.addEventListener("mousedown", (e) => {
+  if (e.target === loadEl) closeLoadGauge();
+});
+loadBody.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" || e.key === "Enter") {
+    e.preventDefault();
+    closeLoadGauge();
+  }
+});
 
 // ── df disk-free gauge (Ctrl+Shift+E while a `df` command is typed) ───────────
 // Runs a read-only `df -k` (run_df) and shows one proportional bar per filesystem — used /

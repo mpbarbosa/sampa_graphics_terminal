@@ -542,6 +542,31 @@ fn ping_output(host: &str) -> Option<String> {
     }
 }
 
+/// Load averages + core count for the `uptime` load gauge (read-only). Runs `uptime` with
+/// `LC_ALL=C` so the load averages use a decimal point (some locales print a comma, which is
+/// ambiguous with the list separator), parses it, and attaches the CPU count so the frontend
+/// can show load relative to cores. `uptime` reads `/proc/loadavg` and returns instantly, so
+/// no timeout. No shell.
+#[derive(Serialize)]
+struct UptimeReport {
+    #[serde(flatten)]
+    info: sampa_uptimedec::UptimeInfo,
+    cores: usize,
+}
+
+#[tauri::command]
+fn run_uptime() -> Result<UptimeReport, String> {
+    let out = std::process::Command::new("uptime")
+        .env("LC_ALL", "C")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .map_err(|e| format!("could not run uptime: {e}"))?;
+    let info = sampa_uptimedec::parse_uptime(&String::from_utf8_lossy(&out.stdout))
+        .ok_or_else(|| "could not parse uptime output".to_string())?;
+    let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+    Ok(UptimeReport { info, cores })
+}
+
 /// Per-filesystem usage for the `df` gauge view (read-only): run `df -k` and parse it
 /// (`sampa_dfdec`). `df` stats every mount and can block on a stale network mount, so it
 /// runs off the async runtime with a wall-clock timeout (child killed on expiry). No shell.
@@ -869,6 +894,7 @@ pub fn run() {
             run_free,
             run_ping,
             run_df,
+            run_uptime,
             open_url,
             suggest_command,
             explain_command,
