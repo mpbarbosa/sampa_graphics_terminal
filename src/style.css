@@ -1273,3 +1273,89 @@ body {
   color: #565f89;
   font: 11px ui-sans-serif, system-ui, sans-serif;
 }
+
+/* uptime load gauge (Ctrl+Shift+E while an `uptime` command is typed). The 1/5/15-min load
+   averages as bars scaled to the CPU core count (100% = load == cores). Informational. */
+#loadgauge {
+  position: fixed;
+  inset: 0;
+  z-index: 98;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+  background: rgba(0, 0, 0, 0.45);
+}
+#loadgauge[hidden] {
+  display: none;
+}
+.load-box {
+  width: min(520px, 92%);
+  display: flex;
+  flex-direction: column;
+  background: #1a1b26;
+  border: 1px solid #2a2e42;
+  border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.load-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid #2a2e42;
+  color: #c0caf5;
+  font: 600 14px ui-sans-serif, system-ui, sans-serif;
+}
+.load-head button {
+  border: none;
+  background: transparent;
+  color: #7a819e;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+}
+.load-head button:hover {
+  color: #c0caf5;
+}
+#load-sub {
+  padding: 10px 14px 2px;
+  color: #7a819e;
+  font: 12px ui-sans-serif, system-ui, sans-serif;
+}
+#load-body {
+  padding: 8px 14px 14px;
+  outline: none;
+}
+.load-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  font: 12px ui-monospace, monospace;
+}
+.load-label {
+  flex: 0 0 46px;
+  color: #7a819e;
+}
+.load-track {
+  flex: 1 1 auto;
+  height: 18px;
+  border-radius: 5px;
+  background: #16161e;
+  overflow: hidden;
+}
+.load-fill {
+  height: 100%;
+}
+.load-val {
+  flex: 0 0 auto;
+  color: #c0caf5;
+}
+.load-hint {
+  padding: 6px 14px;
+  border-top: 1px solid #2a2e42;
+  color: #565f89;
+  font: 11px ui-sans-serif, system-ui, sans-serif;
+}

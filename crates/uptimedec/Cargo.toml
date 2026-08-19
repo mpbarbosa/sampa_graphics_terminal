@@ -1,0 +1,12 @@
+[package]
+name = "sampa-uptimedec"
+version = "0.1.0"
+edition = "2021"
+description = "Parse uptime(1) output into load averages + uptime/users for the load gauge view."
+license = "MIT"
+
+# Headless parse core — turns `uptime` output (C locale) into the three load averages plus
+# the uptime-duration and user-count text the frontend renders as a load gauge. Pure (serde
+# only, for the IPC model); no shell, no Tauri. Fails safe to None when there's no load line.
+[dependencies]
+serde = { version = "1", features = ["derive"] }

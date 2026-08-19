@@ -150,6 +150,17 @@
           <div class="df-hint">Esc close</div>
         </div>
       </div>
+      <div id="loadgauge" hidden>
+        <div class="load-box" role="dialog" aria-modal="true" aria-label="Load average">
+          <div class="load-head">
+            <span id="load-title">Load average</span>
+            <button id="load-close" title="Close (Esc)">✕</button>
+          </div>
+          <div id="load-sub"></div>
+          <div id="load-body" tabindex="0"></div>
+          <div class="load-hint">bars show load ÷ cores · Esc close</div>
+        </div>
+      </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
