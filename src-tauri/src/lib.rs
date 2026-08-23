@@ -285,13 +285,22 @@ fn list_commands(cache: State<'_, CommandCache>) -> Vec<String> {
     guard.clone().unwrap_or_default()
 }
 
-/// The `gh` command cheat-sheet for the man panel (read-only): run `gh --help` and parse it
-/// (`sampa_ghhelp`) into grouped `name: desc` entries. `gh` has no useful man page, so the
-/// man-panel shortcut shows this instead when the typed command is `gh`. `--help` prints
-/// locally (no network) and returns instantly. No shell.
+/// The `gh` command cheat-sheet for the man panel (read-only): run `gh <args…> --help` and
+/// parse it (`sampa_ghhelp`) into grouped `name: desc` entries. With no args this is the
+/// top-level `gh --help`; with a subcommand path (`["repo"]`) it's that subcommand's
+/// commands (`gh repo --help`), so the panel drills in as the user types `gh repo`. `gh` has
+/// no useful man page, so the man-panel shortcut shows this instead. `--help` prints locally
+/// (no network) and returns instantly. Each arg is a lone argv (no shell); flag-shaped args
+/// are dropped so nothing but subcommand names reaches `gh`.
 #[tauri::command]
-fn gh_help() -> Result<Vec<sampa_ghhelp::GhCommand>, String> {
-    let out = std::process::Command::new("gh")
+fn gh_help(args: Vec<String>) -> Result<Vec<sampa_ghhelp::GhCommand>, String> {
+    let mut cmd = std::process::Command::new("gh");
+    for a in &args {
+        if !a.is_empty() && !a.starts_with('-') {
+            cmd.arg(a);
+        }
+    }
+    let out = cmd
         .arg("--help")
         .stdin(std::process::Stdio::null())
         .output()

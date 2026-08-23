@@ -98,6 +98,32 @@ LEARN MORE
     }
 
     #[test]
+    fn parses_subcommand_help() {
+        // `gh repo --help` uses the same section shape (GENERAL / TARGETED COMMANDS).
+        let out = "Work with GitHub repositories.
+
+USAGE
+  gh repo <command> [flags]
+
+GENERAL COMMANDS
+  create:      Create a new repository
+  list:        List repositories
+
+TARGETED COMMANDS
+  clone:       Clone a repository locally
+  view:        View a repository
+
+INHERITED FLAGS
+  --help   Show help for command
+";
+        let cmds = parse_gh_help(out).unwrap();
+        assert_eq!(cmds.len(), 4);
+        assert_eq!(cmds[0].section, "GENERAL");
+        assert_eq!(cmds[2], GhCommand { name: "clone".into(), desc: "Clone a repository locally".into(), section: "TARGETED".into() });
+        assert!(cmds.iter().all(|c| c.name != "--help")); // INHERITED FLAGS ignored
+    }
+
+    #[test]
     fn non_gh_help_is_none() {
         assert!(parse_gh_help("").is_none());
         assert!(parse_gh_help("just some text\nwith no commands\n").is_none());

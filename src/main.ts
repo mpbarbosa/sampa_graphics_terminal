@@ -1976,11 +1976,22 @@ function hideMan(): void {
 }
 
 // `gh` has no useful man page, so show a grouped cheat-sheet of its commands (from
-// `gh --help`) in the man panel instead. Rendered as aligned text in the man <pre>.
+// `gh <path…> --help`) in the man panel instead. The subcommand path is read from the typed
+// line, so `gh` shows the top-level commands and `gh repo` drills into repo's. Rendered as
+// aligned text in the man <pre>.
 async function showGhHelp(): Promise<void> {
+  // Subcommand path = the leading subcommand-like tokens after `gh` (stop at a flag).
+  const toks = (activeTab()?.typed.trim() ?? "").split(/\s+/).slice(1);
+  const sub: string[] = [];
+  for (const t of toks) {
+    if (!/^[a-z][a-z0-9-]*$/i.test(t)) break; // flag or non-subcommand → stop
+    sub.push(t);
+  }
+  const path = ["gh", ...sub].join(" ");
+  if (path === manCurrent && !manPanel.hidden) return; // already showing this level
   let cmds: GhCommand[];
   try {
-    cmds = await invoke<GhCommand[]>("gh_help");
+    cmds = await invoke<GhCommand[]>("gh_help", { args: sub });
   } catch {
     hideMan();
     return;
@@ -1999,10 +2010,10 @@ async function showGhHelp(): Promise<void> {
     }
     body += `  ${c.name.padEnd(width)}  ${c.desc}\n`;
   }
-  manTitle.textContent = "gh — commands";
+  manTitle.textContent = `${path} — commands`;
   manBody.textContent = body; // untrusted-ish CLI text — textContent, never innerHTML
   manBody.scrollTop = 0;
-  manCurrent = "gh";
+  manCurrent = path;
   if (manPanel.hidden) {
     manPanel.hidden = false;
     refitActive();
