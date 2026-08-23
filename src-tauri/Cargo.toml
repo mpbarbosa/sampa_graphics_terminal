@@ -33,4 +33,5 @@ sampa-freemem = { path = "../crates/freemem" }
 sampa-pingdec = { path = "../crates/pingdec" }
 sampa-dfdec = { path = "../crates/dfdec" }
 sampa-uptimedec = { path = "../crates/uptimedec" }
+sampa-ghhelp = { path = "../crates/ghhelp" }
 tokio = { version = "1", features = ["rt"] }

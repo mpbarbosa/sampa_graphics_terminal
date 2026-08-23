@@ -2706,6 +2706,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "sampa-ghhelp"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "sampa-man"
 version = "0.1.0"
 
@@ -2752,6 +2759,7 @@ dependencies = [
  "sampa-dumap",
  "sampa-freemem",
  "sampa-fsnav",
+ "sampa-ghhelp",
  "sampa-man",
  "sampa-palette",
  "sampa-pingdec",

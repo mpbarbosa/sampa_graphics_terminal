@@ -1,0 +1,12 @@
+[package]
+name = "sampa-ghhelp"
+version = "0.1.0"
+edition = "2021"
+description = "Parse `gh --help` into a grouped command cheat-sheet for the gh helper panel."
+license = "MIT"
+
+# Headless parse core — turns `gh --help` output into the grouped command list the frontend
+# shows in the man panel when the typed command is `gh`. Pure (serde only, for the IPC
+# model); no shell, no Tauri. Fails safe to None when no commands are found.
+[dependencies]
+serde = { version = "1", features = ["derive"] }
