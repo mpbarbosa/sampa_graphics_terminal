@@ -1,0 +1,13 @@
+[package]
+name = "sampa-cargohelp"
+version = "0.1.0"
+edition = "2021"
+description = "Parse `cargo --help` into a command cheat-sheet for the cargo helper panel."
+license = "MIT"
+
+# Headless parse core — turns `cargo --help` output into the command list the frontend shows
+# in the man panel when the typed command is `cargo`. Pure (serde only, for the IPC model);
+# no shell, no Tauri. Fails safe to None when no commands are found (a leaf like
+# `cargo build --help`), mirroring sampa-ghhelp.
+[dependencies]
+serde = { version = "1", features = ["derive"] }

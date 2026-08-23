@@ -34,5 +34,6 @@ sampa-pingdec = { path = "../crates/pingdec" }
 sampa-dfdec = { path = "../crates/dfdec" }
 sampa-uptimedec = { path = "../crates/uptimedec" }
 sampa-ghhelp = { path = "../crates/ghhelp" }
+sampa-cargohelp = { path = "../crates/cargohelp" }
 sampa-netdec = { path = "../crates/netdec" }
 tokio = { version = "1", features = ["rt"] }

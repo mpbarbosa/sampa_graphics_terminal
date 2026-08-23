@@ -321,7 +321,48 @@ fn gh_help_raw(args: Vec<String>) -> Result<String, String> {
 /// command list) and `gh_help_raw` (leaf fallback). Each arg is a lone argv; flag-shaped args
 /// are dropped so only subcommand names reach `gh`. `--help` prints locally (no network).
 fn run_gh_help(args: &[String]) -> Result<String, String> {
-    let mut cmd = std::process::Command::new("gh");
+    run_help_cmd("gh", args)
+}
+
+/// Grouped `cargo <path…> --help` command list for the man panel (like `gh`): `cargo` has many
+/// subcommands and `man cargo` is dense, so the man-panel shortcut shows this cheat-sheet
+/// instead. Same argv discipline (flag-shaped args dropped, no shell); `--help` is local (no
+/// network). Fails when the output has no `Commands:` section — a leaf (`cargo build`) — so the
+/// frontend falls back to `cargo_help_raw`.
+#[tauri::command]
+fn cargo_help(args: Vec<String>) -> Result<Vec<sampa_cargohelp::CargoCommand>, String> {
+    let text = run_cargo_help(&args)?;
+    sampa_cargohelp::parse_cargo_help(&text).ok_or_else(|| "could not parse cargo --help".to_string())
+}
+
+/// Raw `cargo <path…> --help` text for the man panel's **leaf fallback** (`cargo build`,
+/// `cargo test`, …): no `Commands:` section to list, so show that command's own help (usage +
+/// options). C0 control bytes are stripped (except tab/newline) before the text crosses to the
+/// DOM (§13). Same argv discipline as `cargo_help`.
+#[tauri::command]
+fn cargo_help_raw(args: Vec<String>) -> Result<String, String> {
+    let text = run_cargo_help(&args)?;
+    let clean: String = text
+        .chars()
+        .filter(|&c| c == '\n' || c == '\t' || !c.is_control())
+        .collect();
+    if clean.trim().is_empty() {
+        Err("no cargo help available".to_string())
+    } else {
+        Ok(clean)
+    }
+}
+
+fn run_cargo_help(args: &[String]) -> Result<String, String> {
+    run_help_cmd("cargo", args)
+}
+
+/// Run `<program> <subcommand path…> --help` and return its text. Shared by the `gh` and
+/// `cargo` cheat-sheets. Each arg is a lone argv; flag-shaped args are dropped so only
+/// subcommand names reach the program. `--help` prints locally (no network). `LC_ALL=C` keeps
+/// the section headers (`Commands:`) stable across locales.
+fn run_help_cmd(program: &str, args: &[String]) -> Result<String, String> {
+    let mut cmd = std::process::Command::new(program);
     for a in args {
         if !a.is_empty() && !a.starts_with('-') {
             cmd.arg(a);
@@ -329,10 +370,11 @@ fn run_gh_help(args: &[String]) -> Result<String, String> {
     }
     let out = cmd
         .arg("--help")
+        .env("LC_ALL", "C")
         .stdin(std::process::Stdio::null())
         .output()
-        .map_err(|e| format!("could not run gh: {e}"))?;
-    // gh prints help to stdout; fall back to stderr just in case.
+        .map_err(|e| format!("could not run {program}: {e}"))?;
+    // Help goes to stdout; fall back to stderr just in case.
     let text = if out.stdout.is_empty() {
         String::from_utf8_lossy(&out.stderr)
     } else {
@@ -991,6 +1033,8 @@ pub fn run() {
             render_man,
             gh_help,
             gh_help_raw,
+            cargo_help,
+            cargo_help_raw,
             render_preview,
             decorate_ps,
             ps_enrich,

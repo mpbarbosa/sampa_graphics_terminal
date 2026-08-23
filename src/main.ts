@@ -149,6 +149,12 @@ interface GhCommand {
   section: string;
 }
 
+// One cargo subcommand from cargo_help, for the cargo cheat-sheet in the man panel.
+interface CargoCommand {
+  name: string;
+  desc: string;
+}
+
 // One socket from run_netstat (via ss), for the connections table.
 interface Conn {
   proto: string;
@@ -2087,13 +2093,7 @@ function hideMan(): void {
 // line, so `gh` shows the top-level commands and `gh repo` drills into repo's. Rendered as
 // aligned text in the man <pre>.
 async function showGhHelp(): Promise<void> {
-  // Subcommand path = the leading subcommand-like tokens after `gh` (stop at a flag).
-  const toks = (activeTab()?.typed.trim() ?? "").split(/\s+/).slice(1);
-  const sub: string[] = [];
-  for (const t of toks) {
-    if (!/^[a-z][a-z0-9-]*$/i.test(t)) break; // flag or non-subcommand → stop
-    sub.push(t);
-  }
+  const sub = subcommandPath();
   const path = ["gh", ...sub].join(" ");
   if (path === manCurrent && !manPanel.hidden) return; // already showing this level
   let cmds: GhCommand[] = [];
@@ -2154,10 +2154,83 @@ async function showGhHelpRaw(sub: string[], path: string): Promise<void> {
   }
 }
 
+// The leading subcommand-like tokens after the program name (stopping at the first flag), used
+// to drill the gh/cargo cheat-sheets in by the typed path (`cargo` → top, `cargo build` → leaf).
+function subcommandPath(): string[] {
+  const toks = (activeTab()?.typed.trim() ?? "").split(/\s+/).slice(1);
+  const sub: string[] = [];
+  for (const t of toks) {
+    if (!/^[a-z][a-z0-9-]*$/i.test(t)) break; // flag or non-subcommand → stop
+    sub.push(t);
+  }
+  return sub;
+}
+
+// `cargo` has many subcommands and a dense `man cargo`, so — like `gh` — the man panel shows a
+// command cheat-sheet from `cargo <path…> --help` instead. A leaf (`cargo build`, no `Commands:`
+// section) falls back to its own raw `--help`, so every subcommand surfaces something.
+async function showCargoHelp(): Promise<void> {
+  const sub = subcommandPath();
+  const path = ["cargo", ...sub].join(" ");
+  if (path === manCurrent && !manPanel.hidden) return; // already showing this level
+  let cmds: CargoCommand[] = [];
+  try {
+    cmds = await invoke<CargoCommand[]>("cargo_help", { args: sub });
+  } catch {
+    cmds = []; // no Commands: section (a leaf like `cargo build`) → try raw help below
+  }
+  if (!manEnabled) return; // toggled off while awaiting
+  if (cmds.length === 0) {
+    await showCargoHelpRaw(sub, path);
+    return;
+  }
+  const width = Math.max(...cmds.map((c) => c.name.length));
+  let body = "COMMANDS\n";
+  for (const c of cmds) {
+    body += `  ${c.name.padEnd(width)}  ${c.desc}\n`;
+  }
+  manTitle.textContent = `${path} — commands`;
+  manBody.textContent = body; // untrusted-ish CLI text — textContent, never innerHTML
+  manBody.scrollTop = 0;
+  manCurrent = path;
+  if (manPanel.hidden) {
+    manPanel.hidden = false;
+    refitActive();
+  }
+}
+
+// Leaf fallback for the cargo cheat-sheet: a subcommand with no sub-commands (`cargo build`,
+// `cargo test`) shows its own `cargo … --help` (usage + options) as plain text.
+async function showCargoHelpRaw(sub: string[], path: string): Promise<void> {
+  let text: string;
+  try {
+    text = await invoke<string>("cargo_help_raw", { args: sub });
+  } catch {
+    hideMan();
+    return;
+  }
+  if (!manEnabled || text.trim().length === 0) {
+    hideMan();
+    return;
+  }
+  manTitle.textContent = `${path} — help`;
+  manBody.textContent = text; // untrusted-ish CLI text — textContent, never innerHTML
+  manBody.scrollTop = 0;
+  manCurrent = path;
+  if (manPanel.hidden) {
+    manPanel.hidden = false;
+    refitActive();
+  }
+}
+
 async function showMan(cmd: string): Promise<void> {
   if (cmd === manCurrent && !manPanel.hidden) return;
   if (cmd === "gh") {
     await showGhHelp();
+    return;
+  }
+  if (cmd === "cargo") {
+    await showCargoHelp();
     return;
   }
   const text = await invoke<string | null>("render_man", { cmd });
