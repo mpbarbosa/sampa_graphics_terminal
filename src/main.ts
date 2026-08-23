@@ -2096,15 +2096,17 @@ async function showGhHelp(): Promise<void> {
   }
   const path = ["gh", ...sub].join(" ");
   if (path === manCurrent && !manPanel.hidden) return; // already showing this level
-  let cmds: GhCommand[];
+  let cmds: GhCommand[] = [];
   try {
     cmds = await invoke<GhCommand[]>("gh_help", { args: sub });
   } catch {
-    hideMan();
-    return;
+    cmds = []; // no COMMANDS sections (a leaf like `gh repo view`) → try raw help below
   }
-  if (!manEnabled || cmds.length === 0) {
-    hideMan();
+  if (!manEnabled) return; // toggled off while awaiting
+  // A leaf subcommand parses to no command list; show its own `--help` (usage + flags) so
+  // every subcommand — container or leaf — surfaces something, not a blank panel.
+  if (cmds.length === 0) {
+    await showGhHelpRaw(sub, path);
     return;
   }
   const width = Math.max(...cmds.map((c) => c.name.length));
@@ -2119,6 +2121,31 @@ async function showGhHelp(): Promise<void> {
   }
   manTitle.textContent = `${path} — commands`;
   manBody.textContent = body; // untrusted-ish CLI text — textContent, never innerHTML
+  manBody.scrollTop = 0;
+  manCurrent = path;
+  if (manPanel.hidden) {
+    manPanel.hidden = false;
+    refitActive();
+  }
+}
+
+// Leaf fallback for the gh cheat-sheet: a subcommand with no sub-commands (`gh repo view`,
+// `gh auth login`) has no command list to group, so show its own `gh … --help` (usage +
+// flags) as plain text. Keeps every subcommand useful instead of blanking the panel.
+async function showGhHelpRaw(sub: string[], path: string): Promise<void> {
+  let text: string;
+  try {
+    text = await invoke<string>("gh_help_raw", { args: sub });
+  } catch {
+    hideMan();
+    return;
+  }
+  if (!manEnabled || text.trim().length === 0) {
+    hideMan();
+    return;
+  }
+  manTitle.textContent = `${path} — help`;
+  manBody.textContent = text; // untrusted-ish CLI text — textContent, never innerHTML
   manBody.scrollTop = 0;
   manCurrent = path;
   if (manPanel.hidden) {

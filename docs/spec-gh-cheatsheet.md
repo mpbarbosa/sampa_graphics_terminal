@@ -21,11 +21,15 @@ page. Informational; nothing is composed or run.
 - When the detected command is **`gh`**, the frontend routes to the cheat-sheet instead of
   `render_man`; any other command still shows its man page. This works on both the man
   panel's keystroke auto-update and the `Ctrl+Shift+M` toggle.
-- **Drill-in by subcommand.** The frontend reads the **subcommand path** from the typed line
-  — the leading subcommand-like tokens after `gh` (stopping at the first flag) — so `gh`
-  shows the top-level commands and **`gh repo` shows `gh repo`'s commands** (`gh repo --help`).
-  A path that has no `… COMMANDS` sections (a leaf like `gh repo view`) parses to nothing and
-  the panel simply doesn't show a list.
+- **Drill-in by subcommand — for *every* subcommand.** The frontend reads the **subcommand
+  path** from the typed line — the leading subcommand-like tokens after `gh` (stopping at the
+  first flag) — and runs `gh <path…> --help`, so it drills to any depth: `gh` shows the
+  top-level commands, `gh repo` shows repo's commands, `gh pr` shows pr's, and so on. Nothing
+  is `repo`-specific — the path is generic.
+- **Leaf fallback.** A path with no `… COMMANDS` sections is a **leaf** action (`gh repo view`,
+  `gh pr checkout`, `gh auth login`, `gh release create`, …). Rather than blank the panel, the
+  frontend then shows that command's **own `--help`** (usage + flags) as plain text. So every
+  subcommand — container or leaf, at any depth — surfaces something useful.
 - Dismissed the same way as the man panel (its ✕ / toggling off).
 
 ## 3. Data
@@ -48,9 +52,12 @@ page. Informational; nothing is composed or run.
 - **`crates/ghhelp` (`sampa-ghhelp`)** — headless parse core. `parse_gh_help(output) ->
   Vec<GhCommand>`, fail-safe-to-`None`, mirroring the other decorator cores. Pure `std` +
   serde — **no shell, no Tauri**. Tested against sample and real `gh --help`.
-- **Bridge** — `gh_help()` runs `gh --help` and returns the parsed entries.
-- **Frontend** — `showGhHelp` formats the grouped/aligned text and shows it in the man panel;
-  `showMan` routes `gh` to it.
+- **Bridge** — `gh_help(args)` runs `gh <path…> --help` and returns the parsed entries;
+  `gh_help_raw(args)` returns the same command's raw help text (C0-stripped) for the leaf
+  fallback. Both share a `run_gh_help` helper (flag-shaped args dropped, no shell, no network).
+- **Frontend** — `showGhHelp` formats the grouped/aligned command list; on a leaf (no list) it
+  falls back to `showGhHelpRaw`, which shows the raw `gh … — help` text. `showMan` routes `gh`
+  to it. Both render via `textContent` only.
 
 ## 6. Relationship to existing docs
 
