@@ -1,0 +1,13 @@
+[package]
+name = "sampa-netdec"
+version = "0.1.0"
+edition = "2021"
+description = "Parse ss(8) socket output into a connections table for the netstat decorator."
+license = "MIT"
+
+# Headless parse core — turns `ss -tunap` output into a connections table the frontend
+# renders. `ss` is the modern replacement for the deprecated `netstat`; the decorator
+# triggers on either typed command. Pure (serde only, for the IPC model); no shell, no
+# Tauri. Fails safe to None when the input isn't `ss` output.
+[dependencies]
+serde = { version = "1", features = ["derive"] }

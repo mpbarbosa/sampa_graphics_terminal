@@ -1359,3 +1359,99 @@ body {
   color: #565f89;
   font: 11px ui-sans-serif, system-ui, sans-serif;
 }
+
+/* netstat/ss connections table (Ctrl+Shift+E while a `netstat`/`ss` command is typed).
+   A decorated socket table coloured by state. Read-only/informational. */
+#netpanel {
+  position: fixed;
+  inset: 0;
+  z-index: 98;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 8vh;
+  background: rgba(0, 0, 0, 0.45);
+}
+#netpanel[hidden] {
+  display: none;
+}
+.net-box {
+  width: min(860px, 96%);
+  height: 78vh;
+  display: flex;
+  flex-direction: column;
+  background: #1a1b26;
+  border: 1px solid #2a2e42;
+  border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.net-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid #2a2e42;
+  color: #7dcfff;
+  font: 12px ui-monospace, monospace;
+}
+.net-head button {
+  border: none;
+  background: transparent;
+  color: #7a819e;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+}
+.net-head button:hover {
+  color: #c0caf5;
+}
+#net-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  outline: none;
+}
+#net-table {
+  border-collapse: collapse;
+  width: 100%;
+  color: #a9b1d6;
+  font: 12px ui-monospace, monospace;
+}
+#net-table th {
+  text-align: left;
+  padding: 4px 12px;
+  color: #565f89;
+  font-weight: normal;
+  position: sticky;
+  top: 0;
+  background: #16181f;
+  border-bottom: 1px solid #2a2e42;
+}
+#net-table td {
+  padding: 2px 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 280px;
+}
+#net-table tbody tr:hover {
+  background: #1e2030;
+}
+.net-state {
+  font-weight: 600;
+}
+.net-listen {
+  color: #9ece6a;
+}
+.net-estab {
+  color: #7aa2f7;
+}
+.net-wait {
+  color: #e0af68;
+}
+.net-hint {
+  padding: 6px 14px;
+  border-top: 1px solid #2a2e42;
+  color: #565f89;
+  font: 11px ui-sans-serif, system-ui, sans-serif;
+}
