@@ -142,6 +142,13 @@ interface UptimeReport {
   cores: number;
 }
 
+// One gh subcommand from gh_help, for the gh cheat-sheet in the man panel.
+interface GhCommand {
+  name: string;
+  desc: string;
+  section: string;
+}
+
 // Per-process detail from the ps_enrich query (spec §6 detail pane).
 interface PsDetail {
   pid: number;
@@ -1968,8 +1975,46 @@ function hideMan(): void {
   refitActive();
 }
 
+// `gh` has no useful man page, so show a grouped cheat-sheet of its commands (from
+// `gh --help`) in the man panel instead. Rendered as aligned text in the man <pre>.
+async function showGhHelp(): Promise<void> {
+  let cmds: GhCommand[];
+  try {
+    cmds = await invoke<GhCommand[]>("gh_help");
+  } catch {
+    hideMan();
+    return;
+  }
+  if (!manEnabled || cmds.length === 0) {
+    hideMan();
+    return;
+  }
+  const width = Math.max(...cmds.map((c) => c.name.length));
+  let body = "";
+  let section = "";
+  for (const c of cmds) {
+    if (c.section !== section) {
+      body += `${body ? "\n" : ""}${c.section} COMMANDS\n`;
+      section = c.section;
+    }
+    body += `  ${c.name.padEnd(width)}  ${c.desc}\n`;
+  }
+  manTitle.textContent = "gh — commands";
+  manBody.textContent = body; // untrusted-ish CLI text — textContent, never innerHTML
+  manBody.scrollTop = 0;
+  manCurrent = "gh";
+  if (manPanel.hidden) {
+    manPanel.hidden = false;
+    refitActive();
+  }
+}
+
 async function showMan(cmd: string): Promise<void> {
   if (cmd === manCurrent && !manPanel.hidden) return;
+  if (cmd === "gh") {
+    await showGhHelp();
+    return;
+  }
   const text = await invoke<string | null>("render_man", { cmd });
   if (!manEnabled) return; // toggled off while awaiting
   if (text) {

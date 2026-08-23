@@ -285,6 +285,26 @@ fn list_commands(cache: State<'_, CommandCache>) -> Vec<String> {
     guard.clone().unwrap_or_default()
 }
 
+/// The `gh` command cheat-sheet for the man panel (read-only): run `gh --help` and parse it
+/// (`sampa_ghhelp`) into grouped `name: desc` entries. `gh` has no useful man page, so the
+/// man-panel shortcut shows this instead when the typed command is `gh`. `--help` prints
+/// locally (no network) and returns instantly. No shell.
+#[tauri::command]
+fn gh_help() -> Result<Vec<sampa_ghhelp::GhCommand>, String> {
+    let out = std::process::Command::new("gh")
+        .arg("--help")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .map_err(|e| format!("could not run gh: {e}"))?;
+    // gh prints help to stdout; fall back to stderr just in case.
+    let text = if out.stdout.is_empty() {
+        String::from_utf8_lossy(&out.stderr)
+    } else {
+        String::from_utf8_lossy(&out.stdout)
+    };
+    sampa_ghhelp::parse_gh_help(&text).ok_or_else(|| "could not parse gh --help".to_string())
+}
+
 /// Rendered, sanitized `man <cmd>` text for the live man panel (DESIGN.md §10.2), or
 /// `None` if `cmd` is invalid or has no page. Cached per command.
 #[tauri::command]
@@ -886,6 +906,7 @@ pub fn run() {
             get_config,
             list_commands,
             render_man,
+            gh_help,
             render_preview,
             decorate_ps,
             ps_enrich,
