@@ -294,8 +294,35 @@ fn list_commands(cache: State<'_, CommandCache>) -> Vec<String> {
 /// are dropped so nothing but subcommand names reaches `gh`.
 #[tauri::command]
 fn gh_help(args: Vec<String>) -> Result<Vec<sampa_ghhelp::GhCommand>, String> {
+    let text = run_gh_help(&args)?;
+    sampa_ghhelp::parse_gh_help(&text).ok_or_else(|| "could not parse gh --help".to_string())
+}
+
+/// Raw `gh <path…> --help` text for the man panel's **leaf fallback**: a subcommand with no
+/// `… COMMANDS` sections (`gh repo view`, `gh auth login`, …) parses to nothing, so instead of
+/// blanking, the frontend shows that command's own help (usage + flags) here. Same argv
+/// discipline as `gh_help` (flag-shaped args dropped, no shell, local/no-network). C0 control
+/// bytes are stripped (except tab/newline) before the text crosses to the DOM (§13).
+#[tauri::command]
+fn gh_help_raw(args: Vec<String>) -> Result<String, String> {
+    let text = run_gh_help(&args)?;
+    let clean: String = text
+        .chars()
+        .filter(|&c| c == '\n' || c == '\t' || !c.is_control())
+        .collect();
+    if clean.trim().is_empty() {
+        Err("no gh help available".to_string())
+    } else {
+        Ok(clean)
+    }
+}
+
+/// Run `gh <subcommand path…> --help` and return its text. Shared by `gh_help` (parsed into a
+/// command list) and `gh_help_raw` (leaf fallback). Each arg is a lone argv; flag-shaped args
+/// are dropped so only subcommand names reach `gh`. `--help` prints locally (no network).
+fn run_gh_help(args: &[String]) -> Result<String, String> {
     let mut cmd = std::process::Command::new("gh");
-    for a in &args {
+    for a in args {
         if !a.is_empty() && !a.starts_with('-') {
             cmd.arg(a);
         }
@@ -311,7 +338,7 @@ fn gh_help(args: Vec<String>) -> Result<Vec<sampa_ghhelp::GhCommand>, String> {
     } else {
         String::from_utf8_lossy(&out.stdout)
     };
-    sampa_ghhelp::parse_gh_help(&text).ok_or_else(|| "could not parse gh --help".to_string())
+    Ok(text.into_owned())
 }
 
 /// Rendered, sanitized `man <cmd>` text for the live man panel (DESIGN.md §10.2), or
@@ -963,6 +990,7 @@ pub fn run() {
             list_commands,
             render_man,
             gh_help,
+            gh_help_raw,
             render_preview,
             decorate_ps,
             ps_enrich,
