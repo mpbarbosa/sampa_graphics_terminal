@@ -473,6 +473,53 @@ fn ps_enrich(pids: Vec<u32>) -> Vec<sampa_ps_decorate::PsDetail> {
     }
 }
 
+/// Socket/connections table for the `netstat` decorator (read-only): run `ss -tunap` and
+/// parse it (`sampa_netdec`). `netstat` (net-tools) is deprecated and often absent, and its
+/// udp rows drop the State column; `ss` is the modern replacement with a uniform layout, so
+/// it's the data source (the decorator triggers on typed `netstat` or `ss`). Runs off the
+/// async runtime with a timeout backstop; the child is killed on expiry. No shell.
+#[tauri::command]
+async fn run_netstat() -> Result<Vec<sampa_netdec::Conn>, String> {
+    tokio::task::spawn_blocking(|| {
+        let out = ss_output().ok_or_else(|| "ss timed out or failed (is iproute2 installed?)".to_string())?;
+        sampa_netdec::parse_ss(&out).ok_or_else(|| "could not parse ss output".to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Run `ss -tunap` with a 5s wall-clock cap (killed on expiry). Returns stdout, or `None`
+/// on spawn failure / timeout. No shell.
+fn ss_output() -> Option<String> {
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+    let mut child = Command::new("ss")
+        .args(["-tunap"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let mut stdout = child.stdout.take()?;
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut s = String::new();
+        let _ = stdout.read_to_string(&mut s);
+        let _ = tx.send(s);
+    });
+    match rx.recv_timeout(std::time::Duration::from_secs(5)) {
+        Ok(s) => {
+            let _ = child.wait();
+            Some(s)
+        }
+        Err(_) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            None
+        }
+    }
+}
+
 /// Disk-usage treemap data (read-only): run `du -k` on `path` and parse it into a sized
 /// tree (`sampa_dumap`). `du` traverses the whole subtree and can be slow, so it runs off
 /// the async runtime with a wall-clock timeout (the child is killed on expiry) and a depth
@@ -925,6 +972,7 @@ pub fn run() {
             run_ping,
             run_df,
             run_uptime,
+            run_netstat,
             open_url,
             suggest_command,
             explain_command,

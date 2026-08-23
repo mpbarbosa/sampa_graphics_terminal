@@ -149,6 +149,15 @@ interface GhCommand {
   section: string;
 }
 
+// One socket from run_netstat (via ss), for the connections table.
+interface Conn {
+  proto: string;
+  state: string;
+  local: string;
+  peer: string;
+  process: string | null;
+}
+
 // Per-process detail from the ps_enrich query (spec §6 detail pane).
 interface PsDetail {
   pid: number;
@@ -888,7 +897,7 @@ const HELP_ACTIONS: Array<[string, string]> = [
   ["palette", "Command palette"],
   ["toggle_man", "Toggle man-page panel"],
   ["toggle_preview", "Toggle command preview"],
-  ["enhance_ps", "Enhance ps / cd / du / free / ping / df / uptime"],
+  ["enhance_ps", "Enhance ps / cd / du / free / ping / df / uptime / netstat"],
   ["explain", "Explain typed command (AI)"],
   ["zoom_in", "Zoom in"],
   ["zoom_out", "Zoom out"],
@@ -1298,8 +1307,106 @@ function enhanceShortcut(): void {
   else if (first === "ping") void openPingChart();
   else if (first === "df") void openDfGauge();
   else if (first === "uptime") void openLoadGauge();
+  else if (first === "netstat" || first === "ss") void openNetPanel();
   else void enhancePs();
 }
+
+// ── netstat/ss connections table (Ctrl+Shift+E while `netstat`/`ss` is typed) ──
+// Runs `ss -tunap` (run_netstat) and shows the sockets as a table coloured by state.
+// `netstat` (net-tools) is deprecated and often absent; `ss` is its modern replacement and
+// the data source. Informational; nothing is composed or run.
+const netEl = document.getElementById("netpanel")!;
+const netTitle = document.getElementById("net-title")!;
+const netThead = document.querySelector("#net-table thead")!;
+const netTbody = document.querySelector("#net-table tbody")!;
+const netBody = document.getElementById("net-body")!;
+
+function closeNetPanel(): void {
+  if (netEl.hidden) return;
+  netEl.hidden = true;
+  activeTab()?.term.focus();
+}
+
+// State → colour class + a sort rank (listening first, then established, then waits/other).
+function netStateInfo(state: string): { cls: string; rank: number } {
+  const s = state.toUpperCase();
+  if (s === "LISTEN") return { cls: "net-listen", rank: 0 };
+  if (s === "UNCONN") return { cls: "net-listen", rank: 1 };
+  if (s === "ESTAB") return { cls: "net-estab", rank: 2 };
+  if (s.includes("WAIT") || s.includes("CLOS")) return { cls: "net-wait", rank: 3 };
+  return { cls: "", rank: 4 };
+}
+
+const NET_COLS = ["Proto", "State", "Local Address", "Peer Address", "Process"];
+
+function renderNetTable(conns: Conn[]): void {
+  const listening = conns.filter((c) => c.state === "LISTEN" || c.state === "UNCONN").length;
+  const estab = conns.filter((c) => c.state === "ESTAB").length;
+  netTitle.textContent = `Connections — ${conns.length} sockets · ${listening} listening · ${estab} established`;
+
+  netThead.replaceChildren();
+  const htr = document.createElement("tr");
+  for (const col of NET_COLS) {
+    const th = document.createElement("th");
+    th.textContent = col;
+    htr.appendChild(th);
+  }
+  netThead.appendChild(htr);
+
+  // Sort: listening first, then established, then waits; stable within by proto+local.
+  const sorted = [...conns].sort((a, b) => {
+    const ra = netStateInfo(a.state).rank;
+    const rb = netStateInfo(b.state).rank;
+    return ra - rb || a.proto.localeCompare(b.proto) || a.local.localeCompare(b.local);
+  });
+
+  netTbody.replaceChildren();
+  for (const c of sorted) {
+    const tr = document.createElement("tr");
+    const cell = (text: string, cls?: string) => {
+      const td = document.createElement("td");
+      td.textContent = text;
+      if (cls) td.className = cls;
+      td.title = text; // full value on hover (cells ellipsise)
+      tr.appendChild(td);
+    };
+    cell(c.proto);
+    const st = document.createElement("td");
+    st.textContent = c.state;
+    st.className = `net-state ${netStateInfo(c.state).cls}`;
+    tr.appendChild(st);
+    cell(c.local);
+    cell(c.peer);
+    cell(c.process ?? "");
+    netTbody.appendChild(tr);
+  }
+}
+
+async function openNetPanel(): Promise<void> {
+  netThead.replaceChildren();
+  netTbody.replaceChildren();
+  netTitle.textContent = "Reading sockets…";
+  netEl.hidden = false;
+  netBody.focus();
+  try {
+    const conns = await invoke<Conn[]>("run_netstat");
+    if (netEl.hidden) return;
+    renderNetTable(conns);
+  } catch (e) {
+    if (!netEl.hidden) netTitle.textContent = String(e);
+  }
+}
+
+document.getElementById("net-close")!.addEventListener("click", closeNetPanel);
+netEl.addEventListener("mousedown", (e) => {
+  if (e.target === netEl) closeNetPanel();
+});
+netBody.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" || e.key === "Enter") {
+    e.preventDefault();
+    closeNetPanel();
+  }
+});
 
 // ── uptime load gauge (Ctrl+Shift+E while an `uptime` command is typed) ───────
 // Runs a read-only `uptime` (run_uptime) and shows the 1/5/15-minute load averages as bars

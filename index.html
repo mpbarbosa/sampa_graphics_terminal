@@ -161,6 +161,21 @@
           <div class="load-hint">bars show load ÷ cores · Esc close</div>
         </div>
       </div>
+      <div id="netpanel" hidden>
+        <div class="net-box" role="dialog" aria-modal="true" aria-label="Network connections">
+          <div class="net-head">
+            <span id="net-title">Connections</span>
+            <button id="net-close" title="Close (Esc)">✕</button>
+          </div>
+          <div id="net-body" tabindex="0">
+            <table id="net-table">
+              <thead></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="net-hint">Esc close</div>
+        </div>
+      </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
