@@ -2665,6 +2665,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "sampa-cargohelp"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "sampa-cli"
 version = "0.1.0"
 
@@ -2760,6 +2767,7 @@ dependencies = [
  "notify",
  "pty-core",
  "sampa-ai",
+ "sampa-cargohelp",
  "sampa-cli",
  "sampa-config",
  "sampa-dfdec",
