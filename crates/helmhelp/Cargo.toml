@@ -1,0 +1,14 @@
+[package]
+name = "sampa-helmhelp"
+version = "0.1.0"
+edition = "2021"
+description = "Parse `helm --help` into a command cheat-sheet for the helm helper panel."
+license = "MIT"
+
+# Headless parse core — turns `helm --help` output into the command list the frontend shows in
+# the man panel when the typed command is `helm`. helm is a pure-cobra CLI: its help lists
+# subcommands under an `Available Commands:` header with `name  desc` rows (same shape as a
+# kubectl subcommand). Pure (serde only, for the IPC model); no shell, no Tauri. Fails safe to
+# None when no commands are found (a leaf like `helm install --help`), mirroring sampa-kubectlhelp.
+[dependencies]
+serde = { version = "1", features = ["derive"] }
