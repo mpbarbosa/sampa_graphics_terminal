@@ -168,6 +168,13 @@ interface DockerCommand {
   section: string;
 }
 
+// One kubectl subcommand from kubectl_help, for the kubectl cheat-sheet in the man panel.
+interface KubectlCommand {
+  name: string;
+  desc: string;
+  section: string;
+}
+
 // One socket from run_netstat (via ss), for the connections table.
 interface Conn {
   proto: string;
@@ -2364,6 +2371,69 @@ async function showDockerHelpRaw(sub: string[], path: string): Promise<void> {
   }
 }
 
+// `kubectl` groups its many subcommands under several sections (Basic / Deploy / Cluster
+// Management / … Commands, and cobra's Available Commands for subcommands); like `docker`, the
+// man panel shows that grouped cheat-sheet from `kubectl --help` instead of a man page. A leaf
+// (`kubectl get`, no command section) falls back to raw `kubectl … --help`.
+async function showKubectlHelp(): Promise<void> {
+  const sub = subcommandPath();
+  const path = ["kubectl", ...sub].join(" ");
+  if (path === manCurrent && !manPanel.hidden) return; // already showing this level
+  let cmds: KubectlCommand[] = [];
+  try {
+    cmds = await invoke<KubectlCommand[]>("kubectl_help", { args: sub });
+  } catch {
+    cmds = []; // no command section (a leaf like `kubectl get`) → try raw help below
+  }
+  if (!manEnabled) return; // toggled off while awaiting
+  if (cmds.length === 0) {
+    await showKubectlHelpRaw(sub, path);
+    return;
+  }
+  const width = Math.max(...cmds.map((c) => c.name.length));
+  let body = "";
+  let section = "";
+  for (const c of cmds) {
+    if (c.section !== section) {
+      body += `${body ? "\n" : ""}${c.section.toUpperCase()}\n`;
+      section = c.section;
+    }
+    body += `  ${c.name.padEnd(width)}  ${c.desc}\n`;
+  }
+  manTitle.textContent = `${path} — commands`;
+  manBody.textContent = body; // untrusted-ish CLI text — textContent, never innerHTML
+  manBody.scrollTop = 0;
+  manCurrent = path;
+  if (manPanel.hidden) {
+    manPanel.hidden = false;
+    refitActive();
+  }
+}
+
+// Leaf fallback for the kubectl cheat-sheet: a subcommand with no sub-commands (`kubectl get`,
+// `kubectl apply`) shows its own `kubectl … --help` (usage + options + examples) as plain text.
+async function showKubectlHelpRaw(sub: string[], path: string): Promise<void> {
+  let text: string;
+  try {
+    text = await invoke<string>("kubectl_help_raw", { args: sub });
+  } catch {
+    hideMan();
+    return;
+  }
+  if (!manEnabled || text.trim().length === 0) {
+    hideMan();
+    return;
+  }
+  manTitle.textContent = `${path} — help`;
+  manBody.textContent = text; // untrusted-ish CLI text — textContent, never innerHTML
+  manBody.scrollTop = 0;
+  manCurrent = path;
+  if (manPanel.hidden) {
+    manPanel.hidden = false;
+    refitActive();
+  }
+}
+
 async function showMan(cmd: string): Promise<void> {
   if (cmd === manCurrent && !manPanel.hidden) return;
   if (cmd === "gh") {
@@ -2380,6 +2450,10 @@ async function showMan(cmd: string): Promise<void> {
   }
   if (cmd === "docker") {
     await showDockerHelp();
+    return;
+  }
+  if (cmd === "kubectl") {
+    await showKubectlHelp();
     return;
   }
   const text = await invoke<string | null>("render_man", { cmd });

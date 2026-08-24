@@ -1,0 +1,15 @@
+[package]
+name = "sampa-kubectlhelp"
+version = "0.1.0"
+edition = "2021"
+description = "Parse `kubectl --help` into a grouped command cheat-sheet for the kubectl helper panel."
+license = "MIT"
+
+# Headless parse core — turns `kubectl --help` output into the grouped command list the frontend
+# shows in the man panel when the typed command is `kubectl`. kubectl groups its commands under
+# many `… Commands:` headers (Basic Commands (Beginner), Deploy Commands, Other Commands, and
+# cobra's `Available Commands:` for subcommands) with `name  desc` rows. Pure (serde only, for
+# the IPC model); no shell, no Tauri. Fails safe to None when no commands are found (a leaf like
+# `kubectl get --help`), mirroring sampa-dockerhelp.
+[dependencies]
+serde = { version = "1", features = ["derive"] }
