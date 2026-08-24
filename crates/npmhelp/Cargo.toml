@@ -1,0 +1,14 @@
+[package]
+name = "sampa-npmhelp"
+version = "0.1.0"
+edition = "2021"
+description = "Parse `npm --help` into the command-name list for the npm helper panel."
+license = "MIT"
+
+# Headless parse core — turns `npm --help` output into the list of command names the frontend
+# shows in the man panel when the typed command is `npm`. npm's help lists bare names under an
+# `All commands:` header (no per-command descriptions), so this returns names only. Pure (serde
+# only, for the IPC model); no shell, no Tauri. Fails safe to None when no names are found (a
+# leaf like `npm install --help`, or an older npm), mirroring sampa-ghhelp / sampa-cargohelp.
+[dependencies]
+serde = { version = "1", features = ["derive"] }

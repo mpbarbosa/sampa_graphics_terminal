@@ -2731,6 +2731,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "sampa-npmhelp"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "sampa-palette"
 version = "0.1.0"
 
@@ -2777,6 +2784,7 @@ dependencies = [
  "sampa-ghhelp",
  "sampa-man",
  "sampa-netdec",
+ "sampa-npmhelp",
  "sampa-palette",
  "sampa-pingdec",
  "sampa-preview",

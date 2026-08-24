@@ -35,5 +35,6 @@ sampa-dfdec = { path = "../crates/dfdec" }
 sampa-uptimedec = { path = "../crates/uptimedec" }
 sampa-ghhelp = { path = "../crates/ghhelp" }
 sampa-cargohelp = { path = "../crates/cargohelp" }
+sampa-npmhelp = { path = "../crates/npmhelp" }
 sampa-netdec = { path = "../crates/netdec" }
 tokio = { version = "1", features = ["rt"] }
