@@ -37,5 +37,6 @@ sampa-ghhelp = { path = "../crates/ghhelp" }
 sampa-cargohelp = { path = "../crates/cargohelp" }
 sampa-npmhelp = { path = "../crates/npmhelp" }
 sampa-dockerhelp = { path = "../crates/dockerhelp" }
+sampa-kubectlhelp = { path = "../crates/kubectlhelp" }
 sampa-netdec = { path = "../crates/netdec" }
 tokio = { version = "1", features = ["rt"] }
