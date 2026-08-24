@@ -2223,6 +2223,66 @@ async function showCargoHelpRaw(sub: string[], path: string): Promise<void> {
   }
 }
 
+// `npm` has many subcommands and a paged help; like `gh`/`cargo`, the man panel shows a command
+// list from `npm --help` instead. npm carries no per-command descriptions, so the list is bare
+// names laid out in columns. A leaf (`npm install`, no `All commands:` list) falls back to raw
+// `npm … --help`, so every subcommand surfaces something.
+async function showNpmHelp(): Promise<void> {
+  const sub = subcommandPath();
+  const path = ["npm", ...sub].join(" ");
+  if (path === manCurrent && !manPanel.hidden) return; // already showing this level
+  let names: string[] = [];
+  try {
+    names = await invoke<string[]>("npm_help", { args: sub });
+  } catch {
+    names = []; // no `All commands:` list (a leaf like `npm install`) → try raw help below
+  }
+  if (!manEnabled) return; // toggled off while awaiting
+  if (names.length === 0) {
+    await showNpmHelpRaw(sub, path);
+    return;
+  }
+  // No descriptions — lay the names out in padded columns that fit a nominal 76-col panel.
+  const width = Math.max(...names.map((n) => n.length));
+  const cols = Math.max(1, Math.floor(76 / (width + 2)));
+  let body = "COMMANDS\n";
+  for (let i = 0; i < names.length; i += cols) {
+    body += "  " + names.slice(i, i + cols).map((n) => n.padEnd(width)).join("  ").trimEnd() + "\n";
+  }
+  manTitle.textContent = `${path} — commands`;
+  manBody.textContent = body; // untrusted-ish CLI text — textContent, never innerHTML
+  manBody.scrollTop = 0;
+  manCurrent = path;
+  if (manPanel.hidden) {
+    manPanel.hidden = false;
+    refitActive();
+  }
+}
+
+// Leaf fallback for the npm cheat-sheet: a subcommand with no command list (`npm install`,
+// `npm run`) shows its own `npm … --help` (usage + options) as plain text.
+async function showNpmHelpRaw(sub: string[], path: string): Promise<void> {
+  let text: string;
+  try {
+    text = await invoke<string>("npm_help_raw", { args: sub });
+  } catch {
+    hideMan();
+    return;
+  }
+  if (!manEnabled || text.trim().length === 0) {
+    hideMan();
+    return;
+  }
+  manTitle.textContent = `${path} — help`;
+  manBody.textContent = text; // untrusted-ish CLI text — textContent, never innerHTML
+  manBody.scrollTop = 0;
+  manCurrent = path;
+  if (manPanel.hidden) {
+    manPanel.hidden = false;
+    refitActive();
+  }
+}
+
 async function showMan(cmd: string): Promise<void> {
   if (cmd === manCurrent && !manPanel.hidden) return;
   if (cmd === "gh") {
@@ -2231,6 +2291,10 @@ async function showMan(cmd: string): Promise<void> {
   }
   if (cmd === "cargo") {
     await showCargoHelp();
+    return;
+  }
+  if (cmd === "npm") {
+    await showNpmHelp();
     return;
   }
   const text = await invoke<string | null>("render_man", { cmd });

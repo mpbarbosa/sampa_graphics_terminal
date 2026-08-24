@@ -357,6 +357,40 @@ fn run_cargo_help(args: &[String]) -> Result<String, String> {
     run_help_cmd("cargo", args)
 }
 
+/// The `npm` command-name list for the man panel (like `gh`/`cargo`): `npm` has many
+/// subcommands and its help is paged, so the man-panel shortcut shows this instead. npm's help
+/// carries **no per-command descriptions**, so this returns names only. Same argv discipline
+/// (flag-shaped args dropped, no shell); `npm --help` is local (no network). Fails when the
+/// output has no `All commands:` list — a leaf (`npm install`) — so the frontend falls back to
+/// `npm_help_raw`.
+#[tauri::command]
+fn npm_help(args: Vec<String>) -> Result<Vec<String>, String> {
+    let text = run_npm_help(&args)?;
+    sampa_npmhelp::parse_npm_help(&text).ok_or_else(|| "could not parse npm --help".to_string())
+}
+
+/// Raw `npm <path…> --help` text for the man panel's **leaf fallback** (`npm install`,
+/// `npm run`, …): no `All commands:` list, so show that command's own help (usage + options).
+/// C0 control bytes are stripped (except tab/newline) before the text crosses to the DOM (§13).
+/// Same argv discipline as `npm_help`.
+#[tauri::command]
+fn npm_help_raw(args: Vec<String>) -> Result<String, String> {
+    let text = run_npm_help(&args)?;
+    let clean: String = text
+        .chars()
+        .filter(|&c| c == '\n' || c == '\t' || !c.is_control())
+        .collect();
+    if clean.trim().is_empty() {
+        Err("no npm help available".to_string())
+    } else {
+        Ok(clean)
+    }
+}
+
+fn run_npm_help(args: &[String]) -> Result<String, String> {
+    run_help_cmd("npm", args)
+}
+
 /// Run `<program> <subcommand path…> --help` and return its text. Shared by the `gh` and
 /// `cargo` cheat-sheets. Each arg is a lone argv; flag-shaped args are dropped so only
 /// subcommand names reach the program. `--help` prints locally (no network). `LC_ALL=C` keeps
@@ -1035,6 +1069,8 @@ pub fn run() {
             gh_help_raw,
             cargo_help,
             cargo_help_raw,
+            npm_help,
+            npm_help_raw,
             render_preview,
             decorate_ps,
             ps_enrich,
