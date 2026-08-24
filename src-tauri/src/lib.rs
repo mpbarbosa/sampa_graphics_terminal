@@ -391,6 +391,40 @@ fn run_npm_help(args: &[String]) -> Result<String, String> {
     run_help_cmd("npm", args)
 }
 
+/// Grouped `docker <path…> --help` command list for the man panel (like `gh`/`cargo`/`npm`):
+/// `docker` has many subcommands grouped under several `… Commands:` headers, and its help is
+/// long, so the man-panel shortcut shows this cheat-sheet instead. Same argv discipline
+/// (flag-shaped args dropped, no shell); `docker --help` is pure CLI (no daemon, no network).
+/// Fails when the output has no `… Commands:` section — a leaf (`docker run`) — so the frontend
+/// falls back to `docker_help_raw`.
+#[tauri::command]
+fn docker_help(args: Vec<String>) -> Result<Vec<sampa_dockerhelp::DockerCommand>, String> {
+    let text = run_docker_help(&args)?;
+    sampa_dockerhelp::parse_docker_help(&text).ok_or_else(|| "could not parse docker --help".to_string())
+}
+
+/// Raw `docker <path…> --help` text for the man panel's **leaf fallback** (`docker run`,
+/// `docker ps`, …): no `… Commands:` section to list, so show that command's own help (usage +
+/// options). C0 control bytes are stripped (except tab/newline) before the text crosses to the
+/// DOM (§13). Same argv discipline as `docker_help`.
+#[tauri::command]
+fn docker_help_raw(args: Vec<String>) -> Result<String, String> {
+    let text = run_docker_help(&args)?;
+    let clean: String = text
+        .chars()
+        .filter(|&c| c == '\n' || c == '\t' || !c.is_control())
+        .collect();
+    if clean.trim().is_empty() {
+        Err("no docker help available".to_string())
+    } else {
+        Ok(clean)
+    }
+}
+
+fn run_docker_help(args: &[String]) -> Result<String, String> {
+    run_help_cmd("docker", args)
+}
+
 /// Run `<program> <subcommand path…> --help` and return its text. Shared by the `gh` and
 /// `cargo` cheat-sheets. Each arg is a lone argv; flag-shaped args are dropped so only
 /// subcommand names reach the program. `--help` prints locally (no network). `LC_ALL=C` keeps
@@ -1071,6 +1105,8 @@ pub fn run() {
             cargo_help_raw,
             npm_help,
             npm_help_raw,
+            docker_help,
+            docker_help_raw,
             render_preview,
             decorate_ps,
             ps_enrich,
