@@ -1,0 +1,14 @@
+[package]
+name = "sampa-dockerhelp"
+version = "0.1.0"
+edition = "2021"
+description = "Parse `docker --help` into a grouped command cheat-sheet for the docker helper panel."
+license = "MIT"
+
+# Headless parse core — turns `docker --help` output into the grouped command list the frontend
+# shows in the man panel when the typed command is `docker`. docker groups its commands under
+# several `… Commands:` headers (Common / Management / Swarm / Commands) with `name  desc` rows.
+# Pure (serde only, for the IPC model); no shell, no Tauri. Fails safe to None when no commands
+# are found (a leaf like `docker run --help`), mirroring sampa-ghhelp / sampa-cargohelp.
+[dependencies]
+serde = { version = "1", features = ["derive"] }

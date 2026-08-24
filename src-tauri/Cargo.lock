@@ -2692,6 +2692,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "sampa-dockerhelp"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "sampa-dumap"
 version = "0.1.0"
 dependencies = [
@@ -2778,6 +2785,7 @@ dependencies = [
  "sampa-cli",
  "sampa-config",
  "sampa-dfdec",
+ "sampa-dockerhelp",
  "sampa-dumap",
  "sampa-freemem",
  "sampa-fsnav",

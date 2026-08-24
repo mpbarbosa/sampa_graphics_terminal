@@ -155,6 +155,13 @@ interface CargoCommand {
   desc: string;
 }
 
+// One docker subcommand from docker_help, for the docker cheat-sheet in the man panel.
+interface DockerCommand {
+  name: string;
+  desc: string;
+  section: string;
+}
+
 // One socket from run_netstat (via ss), for the connections table.
 interface Conn {
   proto: string;
@@ -2283,6 +2290,69 @@ async function showNpmHelpRaw(sub: string[], path: string): Promise<void> {
   }
 }
 
+// `docker` groups its many subcommands under several sections (Common / Management / Swarm /
+// Commands); like `gh`, the man panel shows that grouped cheat-sheet from `docker --help`
+// instead of a man page. A leaf (`docker run`, no `… Commands:` section) falls back to raw
+// `docker … --help`, so every subcommand surfaces something.
+async function showDockerHelp(): Promise<void> {
+  const sub = subcommandPath();
+  const path = ["docker", ...sub].join(" ");
+  if (path === manCurrent && !manPanel.hidden) return; // already showing this level
+  let cmds: DockerCommand[] = [];
+  try {
+    cmds = await invoke<DockerCommand[]>("docker_help", { args: sub });
+  } catch {
+    cmds = []; // no `… Commands:` sections (a leaf like `docker run`) → try raw help below
+  }
+  if (!manEnabled) return; // toggled off while awaiting
+  if (cmds.length === 0) {
+    await showDockerHelpRaw(sub, path);
+    return;
+  }
+  const width = Math.max(...cmds.map((c) => c.name.length));
+  let body = "";
+  let section = "";
+  for (const c of cmds) {
+    if (c.section !== section) {
+      body += `${body ? "\n" : ""}${c.section.toUpperCase()}\n`;
+      section = c.section;
+    }
+    body += `  ${c.name.padEnd(width)}  ${c.desc}\n`;
+  }
+  manTitle.textContent = `${path} — commands`;
+  manBody.textContent = body; // untrusted-ish CLI text — textContent, never innerHTML
+  manBody.scrollTop = 0;
+  manCurrent = path;
+  if (manPanel.hidden) {
+    manPanel.hidden = false;
+    refitActive();
+  }
+}
+
+// Leaf fallback for the docker cheat-sheet: a subcommand with no sub-commands (`docker run`,
+// `docker ps`) shows its own `docker … --help` (usage + options) as plain text.
+async function showDockerHelpRaw(sub: string[], path: string): Promise<void> {
+  let text: string;
+  try {
+    text = await invoke<string>("docker_help_raw", { args: sub });
+  } catch {
+    hideMan();
+    return;
+  }
+  if (!manEnabled || text.trim().length === 0) {
+    hideMan();
+    return;
+  }
+  manTitle.textContent = `${path} — help`;
+  manBody.textContent = text; // untrusted-ish CLI text — textContent, never innerHTML
+  manBody.scrollTop = 0;
+  manCurrent = path;
+  if (manPanel.hidden) {
+    manPanel.hidden = false;
+    refitActive();
+  }
+}
+
 async function showMan(cmd: string): Promise<void> {
   if (cmd === manCurrent && !manPanel.hidden) return;
   if (cmd === "gh") {
@@ -2295,6 +2365,10 @@ async function showMan(cmd: string): Promise<void> {
   }
   if (cmd === "npm") {
     await showNpmHelp();
+    return;
+  }
+  if (cmd === "docker") {
+    await showDockerHelp();
     return;
   }
   const text = await invoke<string | null>("render_man", { cmd });
