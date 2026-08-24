@@ -43,15 +43,18 @@ page. Informational; nothing is composed or run.
 
 ## 4. Display
 
-- Rendered into the man panel's `<pre>` as an aligned cheat-sheet: each `… COMMANDS` section
-  header, then `  <name padded>  <description>` rows, so names line up. Title: `gh —
-  commands`. Text reaches the DOM via `textContent` only.
+- Rendered into the man panel's `<pre>` as an aligned cheat-sheet: **the command's own
+  description first** (the intro paragraph `gh <path> --help` prints — e.g. "Secrets can be set
+  at the repository…" for `gh secret` — line wrapping preserved), then each `… COMMANDS` section
+  header, then `  <name padded>  <description>` rows so names line up. Title: `gh — commands`.
+  Text reaches the DOM via `textContent` only.
 
 ## 5. Architecture mapping
 
 - **`crates/ghhelp` (`sampa-ghhelp`)** — headless parse core. `parse_gh_help(output) ->
-  Vec<GhCommand>`, fail-safe-to-`None`, mirroring the other decorator cores. Pure `std` +
-  serde — **no shell, no Tauri**. Tested against sample and real `gh --help`.
+  Vec<GhCommand>` (grouped subcommands) and `parse_gh_description(output) -> Option<String>`
+  (the command's intro paragraph), both fail-safe-to-`None`, mirroring the other decorator
+  cores. Pure `std` + serde — **no shell, no Tauri**. Tested against sample and real `gh --help`.
 - **Bridge** — `gh_help(args)` runs `gh <path…> --help` and returns the parsed entries;
   `gh_help_raw(args)` returns the same command's raw help text (C0-stripped) for the leaf
   fallback. Both share a `run_gh_help` helper (flag-shaped args dropped, no shell, no network).

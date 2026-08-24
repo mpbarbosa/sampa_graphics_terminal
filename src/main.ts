@@ -149,6 +149,12 @@ interface GhCommand {
   section: string;
 }
 
+// The gh_help payload: the command's own description (intro paragraph) + its grouped subcommands.
+interface GhHelp {
+  description: string | null;
+  commands: GhCommand[];
+}
+
 // One cargo subcommand from cargo_help, for the cargo cheat-sheet in the man panel.
 interface CargoCommand {
   name: string;
@@ -2095,33 +2101,38 @@ function hideMan(): void {
   refitActive();
 }
 
-// `gh` has no useful man page, so show a grouped cheat-sheet of its commands (from
-// `gh <path…> --help`) in the man panel instead. The subcommand path is read from the typed
-// line, so `gh` shows the top-level commands and `gh repo` drills into repo's. Rendered as
-// aligned text in the man <pre>.
+// `gh` has no useful man page, so show a cheat-sheet in the man panel instead: the command's own
+// description (what it does) followed by its grouped subcommands (from `gh <path…> --help`). The
+// subcommand path is read from the typed line, so `gh` shows the top-level commands and `gh repo`
+// drills into repo's. Rendered as aligned text in the man <pre>.
 async function showGhHelp(): Promise<void> {
   const sub = subcommandPath();
   const path = ["gh", ...sub].join(" ");
   if (path === manCurrent && !manPanel.hidden) return; // already showing this level
-  let cmds: GhCommand[] = [];
+  let help: GhHelp | null = null;
   try {
-    cmds = await invoke<GhCommand[]>("gh_help", { args: sub });
+    help = await invoke<GhHelp>("gh_help", { args: sub });
   } catch {
-    cmds = []; // no COMMANDS sections (a leaf like `gh repo view`) → try raw help below
+    help = null; // no COMMANDS sections (a leaf like `gh repo view`) → try raw help below
   }
   if (!manEnabled) return; // toggled off while awaiting
   // A leaf subcommand parses to no command list; show its own `--help` (usage + flags) so
   // every subcommand — container or leaf — surfaces something, not a blank panel.
-  if (cmds.length === 0) {
+  if (!help || help.commands.length === 0) {
     await showGhHelpRaw(sub, path);
     return;
   }
+  const cmds = help.commands;
   const width = Math.max(...cmds.map((c) => c.name.length));
   let body = "";
+  // Lead with the command's own description (what it does), then the grouped subcommands.
+  if (help.description) {
+    body += `${help.description}\n\n`;
+  }
   let section = "";
   for (const c of cmds) {
     if (c.section !== section) {
-      body += `${body ? "\n" : ""}${c.section} COMMANDS\n`;
+      body += `${body && !body.endsWith("\n\n") ? "\n" : ""}${c.section} COMMANDS\n`;
       section = c.section;
     }
     body += `  ${c.name.padEnd(width)}  ${c.desc}\n`;
