@@ -58,6 +58,36 @@ pub fn parse_gh_help(output: &str) -> Option<Vec<GhCommand>> {
     (!out.is_empty()).then_some(out)
 }
 
+/// The command's own **description** — the intro paragraph `gh <path> --help` prints before its
+/// first section (e.g. for `gh secret`, "Secrets can be set at the repository…"). It's the
+/// leading run of non-indented prose lines up to the first blank line; a section header
+/// (an ALL-CAPS line like `USAGE`) or an immediately-indented/empty start yields `None`. The
+/// original line wrapping is preserved (the man panel renders in a `<pre>`). Lets the cheat-sheet
+/// show *what a command does*, not just its subcommand list.
+pub fn parse_gh_description(output: &str) -> Option<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for line in output.lines() {
+        if line.trim().is_empty() {
+            if lines.is_empty() {
+                continue; // skip any leading blank lines
+            }
+            break; // end of the first paragraph
+        }
+        // Stop if the paragraph hasn't started and we're already at a section header (an
+        // ALL-CAPS line such as USAGE / CORE COMMANDS), i.e. the help has no description.
+        let t = line.trim();
+        let is_header = !line.starts_with(char::is_whitespace)
+            && t.chars().all(|c| c.is_ascii_uppercase() || c == ' ')
+            && t.chars().any(|c| c.is_ascii_uppercase());
+        if is_header {
+            break;
+        }
+        lines.push(line.trim_end().to_string());
+    }
+    let desc = lines.join("\n");
+    (!desc.trim().is_empty()).then_some(desc)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -127,5 +157,31 @@ INHERITED FLAGS
     fn non_gh_help_is_none() {
         assert!(parse_gh_help("").is_none());
         assert!(parse_gh_help("just some text\nwith no commands\n").is_none());
+    }
+
+    #[test]
+    fn extracts_the_command_description() {
+        // `gh secret --help`: a multi-line intro paragraph, then USAGE.
+        let out = "Secrets can be set at the repository, or organization level for use in
+GitHub Actions or Dependabot. Run `gh help secret set` to learn how to get started.
+
+USAGE
+  gh secret <command> [flags]
+
+AVAILABLE COMMANDS
+  list:    List secrets
+";
+        let desc = parse_gh_description(out).unwrap();
+        assert!(desc.starts_with("Secrets can be set at the repository"));
+        assert!(desc.contains("gh help secret set")); // full paragraph, line breaks preserved
+        assert_eq!(desc.lines().count(), 2);
+        // Single-line description (top-level `gh --help`).
+        assert_eq!(
+            parse_gh_description("Work seamlessly with GitHub from the command line.\n\nUSAGE\n"),
+            Some("Work seamlessly with GitHub from the command line.".to_string())
+        );
+        // Help that opens straight at a section header has no description.
+        assert!(parse_gh_description("USAGE\n  gh x\n").is_none());
+        assert!(parse_gh_description("").is_none());
     }
 }

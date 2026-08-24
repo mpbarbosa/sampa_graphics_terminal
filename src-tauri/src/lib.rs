@@ -292,10 +292,22 @@ fn list_commands(cache: State<'_, CommandCache>) -> Vec<String> {
 /// no useful man page, so the man-panel shortcut shows this instead. `--help` prints locally
 /// (no network) and returns instantly. Each arg is a lone argv (no shell); flag-shaped args
 /// are dropped so nothing but subcommand names reaches `gh`.
+/// The gh cheat-sheet payload: the command's own description (the intro paragraph gh prints,
+/// e.g. "Secrets can be set at the repository…" for `gh secret`) plus its grouped subcommands.
+/// One `gh --help` run feeds both, so the panel shows *what a command does* above its list.
+#[derive(serde::Serialize)]
+struct GhHelp {
+    description: Option<String>,
+    commands: Vec<sampa_ghhelp::GhCommand>,
+}
+
 #[tauri::command]
-fn gh_help(args: Vec<String>) -> Result<Vec<sampa_ghhelp::GhCommand>, String> {
+fn gh_help(args: Vec<String>) -> Result<GhHelp, String> {
     let text = run_gh_help(&args)?;
-    sampa_ghhelp::parse_gh_help(&text).ok_or_else(|| "could not parse gh --help".to_string())
+    let commands =
+        sampa_ghhelp::parse_gh_help(&text).ok_or_else(|| "could not parse gh --help".to_string())?;
+    let description = sampa_ghhelp::parse_gh_description(&text);
+    Ok(GhHelp { description, commands })
 }
 
 /// Raw `gh <path…> --help` text for the man panel's **leaf fallback**: a subcommand with no
