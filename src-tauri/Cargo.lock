@@ -2665,6 +2665,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "sampa-awshelp"
+version = "0.1.0"
+
+[[package]]
 name = "sampa-cargohelp"
 version = "0.1.0"
 dependencies = [
@@ -2795,6 +2799,7 @@ dependencies = [
  "notify",
  "pty-core",
  "sampa-ai",
+ "sampa-awshelp",
  "sampa-cargohelp",
  "sampa-cli",
  "sampa-config",

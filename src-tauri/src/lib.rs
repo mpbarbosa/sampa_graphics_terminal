@@ -504,6 +504,61 @@ fn run_helm_help(args: &[String]) -> Result<String, String> {
     run_help_cmd("helm", args)
 }
 
+/// The `aws` service/command name list for the man panel (like `npm`, names only): `aws` has
+/// hundreds of services and its help is a long man page, so the man-panel shortcut shows this
+/// instead. Same argv discipline (flag-shaped args dropped, no shell); `aws … help` renders
+/// bundled docs **locally — no credentials, no network**. Fails when the output has no
+/// `AVAILABLE …` list — a leaf (`aws s3 ls`) — so the frontend falls back to `aws_help_raw`.
+#[tauri::command]
+fn aws_help(args: Vec<String>) -> Result<Vec<String>, String> {
+    let text = run_aws_help(&args)?;
+    sampa_awshelp::parse_aws_help(&text).ok_or_else(|| "could not parse aws help".to_string())
+}
+
+/// Raw `aws <path…> help` text for the man panel's **leaf fallback** (`aws s3 ls`, …): no
+/// `AVAILABLE …` list, so show that command's own help (description + options + examples). The
+/// groff man-page decoration (ANSI/overstrike) is stripped via `sampa_awshelp::strip` before the
+/// text crosses to the DOM (§13). Same argv discipline as `aws_help`.
+#[tauri::command]
+fn aws_help_raw(args: Vec<String>) -> Result<String, String> {
+    let text = run_aws_help(&args)?;
+    let clean = sampa_awshelp::strip(&text);
+    if clean.trim().is_empty() {
+        Err("no aws help available".to_string())
+    } else {
+        Ok(clean)
+    }
+}
+
+/// Run `aws <subcommand path…> help` and return its text. aws uses a `help` **pseudo-subcommand**
+/// (not `--help`, which errors), so it can't share `run_help_cmd`. Each arg is a lone argv;
+/// flag-shaped args are dropped. The pager is forced off (`AWS_PAGER`/`PAGER`/`MANPAGER`) so the
+/// groff-rendered page is dumped to stdout instead of blocking on an interactive pager. Local —
+/// renders bundled docs, no credentials or network.
+fn run_aws_help(args: &[String]) -> Result<String, String> {
+    let mut cmd = std::process::Command::new("aws");
+    for a in args {
+        if !a.is_empty() && !a.starts_with('-') {
+            cmd.arg(a);
+        }
+    }
+    let out = cmd
+        .arg("help")
+        .env("AWS_PAGER", "")
+        .env("PAGER", "cat")
+        .env("MANPAGER", "cat")
+        .env("LC_ALL", "C")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .map_err(|e| format!("could not run aws: {e}"))?;
+    let text = if out.stdout.is_empty() {
+        String::from_utf8_lossy(&out.stderr)
+    } else {
+        String::from_utf8_lossy(&out.stdout)
+    };
+    Ok(text.into_owned())
+}
+
 /// Run `<program> <subcommand path…> --help` and return its text. Shared by the `gh` and
 /// `cargo` cheat-sheets. Each arg is a lone argv; flag-shaped args are dropped so only
 /// subcommand names reach the program. `--help` prints locally (no network). `LC_ALL=C` keeps
@@ -1190,6 +1245,8 @@ pub fn run() {
             kubectl_help_raw,
             helm_help,
             helm_help_raw,
+            aws_help,
+            aws_help_raw,
             render_preview,
             decorate_ps,
             ps_enrich,

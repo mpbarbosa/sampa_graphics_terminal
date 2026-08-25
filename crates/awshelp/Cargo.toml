@@ -1,0 +1,14 @@
+[package]
+name = "sampa-awshelp"
+version = "0.1.0"
+edition = "2021"
+description = "Parse `aws help` into the command-name list for the aws helper panel."
+license = "MIT"
+
+# Headless parse core — turns `aws help` output into the list of service/command names the
+# frontend shows in the man panel when the typed command is `aws`. aws's help is a groff-rendered
+# man page (ANSI/overstrike) that lists names as `o <name>` bullets under an `AVAILABLE SERVICES`
+# / `AVAILABLE COMMANDS` header — names only, no per-command descriptions. This core strips the
+# ANSI/overstrike and returns names. Pure (std only); no shell, no Tauri. Fails safe to None when
+# no names are found (a leaf like `aws s3 ls help`), mirroring sampa-npmhelp.
+[dependencies]
