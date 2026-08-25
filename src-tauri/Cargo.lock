@@ -2727,6 +2727,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "sampa-helmhelp"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "sampa-kubectlhelp"
 version = "0.1.0"
 dependencies = [
@@ -2797,6 +2804,7 @@ dependencies = [
  "sampa-freemem",
  "sampa-fsnav",
  "sampa-ghhelp",
+ "sampa-helmhelp",
  "sampa-kubectlhelp",
  "sampa-man",
  "sampa-netdec",

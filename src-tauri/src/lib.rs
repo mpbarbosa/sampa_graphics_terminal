@@ -471,6 +471,39 @@ fn run_kubectl_help(args: &[String]) -> Result<String, String> {
     run_help_cmd("kubectl", args)
 }
 
+/// Grouped `helm <path…> --help` command list for the man panel (like `kubectl`): `helm` is a
+/// cobra CLI whose help lists subcommands under `Available Commands:`, so the man-panel shortcut
+/// shows this cheat-sheet instead of a man page. Same argv discipline (flag-shaped args dropped,
+/// no shell); `helm --help` is local (no cluster contact, no network). Fails when the output has
+/// no command section — a leaf (`helm install`) — so the frontend falls back to `helm_help_raw`.
+#[tauri::command]
+fn helm_help(args: Vec<String>) -> Result<Vec<sampa_helmhelp::HelmCommand>, String> {
+    let text = run_helm_help(&args)?;
+    sampa_helmhelp::parse_helm_help(&text).ok_or_else(|| "could not parse helm --help".to_string())
+}
+
+/// Raw `helm <path…> --help` text for the man panel's **leaf fallback** (`helm install`,
+/// `helm upgrade`, …): no command section to list, so show that command's own help (usage +
+/// flags). C0 control bytes are stripped (except tab/newline) before the text crosses to the
+/// DOM (§13). Same argv discipline as `helm_help`.
+#[tauri::command]
+fn helm_help_raw(args: Vec<String>) -> Result<String, String> {
+    let text = run_helm_help(&args)?;
+    let clean: String = text
+        .chars()
+        .filter(|&c| c == '\n' || c == '\t' || !c.is_control())
+        .collect();
+    if clean.trim().is_empty() {
+        Err("no helm help available".to_string())
+    } else {
+        Ok(clean)
+    }
+}
+
+fn run_helm_help(args: &[String]) -> Result<String, String> {
+    run_help_cmd("helm", args)
+}
+
 /// Run `<program> <subcommand path…> --help` and return its text. Shared by the `gh` and
 /// `cargo` cheat-sheets. Each arg is a lone argv; flag-shaped args are dropped so only
 /// subcommand names reach the program. `--help` prints locally (no network). `LC_ALL=C` keeps
@@ -1155,6 +1188,8 @@ pub fn run() {
             docker_help_raw,
             kubectl_help,
             kubectl_help_raw,
+            helm_help,
+            helm_help_raw,
             render_preview,
             decorate_ps,
             ps_enrich,

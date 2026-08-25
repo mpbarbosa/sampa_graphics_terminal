@@ -175,6 +175,13 @@ interface KubectlCommand {
   section: string;
 }
 
+// One helm subcommand from helm_help, for the helm cheat-sheet in the man panel.
+interface HelmCommand {
+  name: string;
+  desc: string;
+  section: string;
+}
+
 // One socket from run_netstat (via ss), for the connections table.
 interface Conn {
   proto: string;
@@ -2434,6 +2441,68 @@ async function showKubectlHelpRaw(sub: string[], path: string): Promise<void> {
   }
 }
 
+// `helm` is a cobra CLI whose subcommands live under `Available Commands:`; like `kubectl`, the
+// man panel shows that grouped cheat-sheet from `helm --help` instead of a man page. A leaf
+// (`helm install`, no command section) falls back to raw `helm … --help`.
+async function showHelmHelp(): Promise<void> {
+  const sub = subcommandPath();
+  const path = ["helm", ...sub].join(" ");
+  if (path === manCurrent && !manPanel.hidden) return; // already showing this level
+  let cmds: HelmCommand[] = [];
+  try {
+    cmds = await invoke<HelmCommand[]>("helm_help", { args: sub });
+  } catch {
+    cmds = []; // no command section (a leaf like `helm install`) → try raw help below
+  }
+  if (!manEnabled) return; // toggled off while awaiting
+  if (cmds.length === 0) {
+    await showHelmHelpRaw(sub, path);
+    return;
+  }
+  const width = Math.max(...cmds.map((c) => c.name.length));
+  let body = "";
+  let section = "";
+  for (const c of cmds) {
+    if (c.section !== section) {
+      body += `${body ? "\n" : ""}${c.section.toUpperCase()}\n`;
+      section = c.section;
+    }
+    body += `  ${c.name.padEnd(width)}  ${c.desc}\n`;
+  }
+  manTitle.textContent = `${path} — commands`;
+  manBody.textContent = body; // untrusted-ish CLI text — textContent, never innerHTML
+  manBody.scrollTop = 0;
+  manCurrent = path;
+  if (manPanel.hidden) {
+    manPanel.hidden = false;
+    refitActive();
+  }
+}
+
+// Leaf fallback for the helm cheat-sheet: a subcommand with no sub-commands (`helm install`,
+// `helm upgrade`) shows its own `helm … --help` (usage + flags) as plain text.
+async function showHelmHelpRaw(sub: string[], path: string): Promise<void> {
+  let text: string;
+  try {
+    text = await invoke<string>("helm_help_raw", { args: sub });
+  } catch {
+    hideMan();
+    return;
+  }
+  if (!manEnabled || text.trim().length === 0) {
+    hideMan();
+    return;
+  }
+  manTitle.textContent = `${path} — help`;
+  manBody.textContent = text; // untrusted-ish CLI text — textContent, never innerHTML
+  manBody.scrollTop = 0;
+  manCurrent = path;
+  if (manPanel.hidden) {
+    manPanel.hidden = false;
+    refitActive();
+  }
+}
+
 async function showMan(cmd: string): Promise<void> {
   if (cmd === manCurrent && !manPanel.hidden) return;
   if (cmd === "gh") {
@@ -2454,6 +2523,10 @@ async function showMan(cmd: string): Promise<void> {
   }
   if (cmd === "kubectl") {
     await showKubectlHelp();
+    return;
+  }
+  if (cmd === "helm") {
+    await showHelmHelp();
     return;
   }
   const text = await invoke<string | null>("render_man", { cmd });
