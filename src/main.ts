@@ -2503,10 +2503,74 @@ async function showHelmHelpRaw(sub: string[], path: string): Promise<void> {
   }
 }
 
+// `aws` has hundreds of services and a long man-page help; like `npm`, the man panel shows a
+// name list from `aws … help` instead. aws exposes no per-command descriptions in its bullet
+// list, so the names are laid out in columns. A leaf (`aws s3 ls`, no `AVAILABLE …` list) falls
+// back to raw `aws … help` (man-page decoration stripped in the bridge).
+async function showAwsHelp(): Promise<void> {
+  const sub = subcommandPath();
+  const path = ["aws", ...sub].join(" ");
+  if (path === manCurrent && !manPanel.hidden) return; // already showing this level
+  let names: string[] = [];
+  try {
+    names = await invoke<string[]>("aws_help", { args: sub });
+  } catch {
+    names = []; // no `AVAILABLE …` list (a leaf like `aws s3 ls`) → try raw help below
+  }
+  if (!manEnabled) return; // toggled off while awaiting
+  if (names.length === 0) {
+    await showAwsHelpRaw(sub, path);
+    return;
+  }
+  // No descriptions — lay the names out in padded columns that fit a nominal 76-col panel.
+  const width = Math.max(...names.map((n) => n.length));
+  const cols = Math.max(1, Math.floor(76 / (width + 2)));
+  let body = "COMMANDS\n";
+  for (let i = 0; i < names.length; i += cols) {
+    body += "  " + names.slice(i, i + cols).map((n) => n.padEnd(width)).join("  ").trimEnd() + "\n";
+  }
+  manTitle.textContent = `${path} — commands`;
+  manBody.textContent = body; // untrusted-ish CLI text — textContent, never innerHTML
+  manBody.scrollTop = 0;
+  manCurrent = path;
+  if (manPanel.hidden) {
+    manPanel.hidden = false;
+    refitActive();
+  }
+}
+
+// Leaf fallback for the aws cheat-sheet: a command with no service/command list (`aws s3 ls`)
+// shows its own `aws … help` (description + options + examples) as plain text.
+async function showAwsHelpRaw(sub: string[], path: string): Promise<void> {
+  let text: string;
+  try {
+    text = await invoke<string>("aws_help_raw", { args: sub });
+  } catch {
+    hideMan();
+    return;
+  }
+  if (!manEnabled || text.trim().length === 0) {
+    hideMan();
+    return;
+  }
+  manTitle.textContent = `${path} — help`;
+  manBody.textContent = text; // untrusted-ish CLI text — textContent, never innerHTML
+  manBody.scrollTop = 0;
+  manCurrent = path;
+  if (manPanel.hidden) {
+    manPanel.hidden = false;
+    refitActive();
+  }
+}
+
 async function showMan(cmd: string): Promise<void> {
   if (cmd === manCurrent && !manPanel.hidden) return;
   if (cmd === "gh") {
     await showGhHelp();
+    return;
+  }
+  if (cmd === "aws") {
+    await showAwsHelp();
     return;
   }
   if (cmd === "cargo") {
