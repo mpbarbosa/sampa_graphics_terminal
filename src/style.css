@@ -790,6 +790,98 @@ body {
   color: #7a819e;
 }
 
+/* URL link-preview (Ctrl+Shift+U / [url_preview]). An unfurl card for a URL on the line —
+   fetched through the guarded bridge; only inert text is shown, never the page's HTML/JS, and
+   the preview image is offered as a link (not auto-loaded, which would be an unguarded fetch). */
+#urlpreview {
+  position: fixed;
+  inset: 0;
+  z-index: 96;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+  background: rgba(0, 0, 0, 0.45);
+}
+#urlpreview[hidden] {
+  display: none;
+}
+.urlprev-box {
+  width: min(560px, 92%);
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  background: #1a1b26;
+  border: 1px solid #2a2e42;
+  border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.urlprev-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid #2a2e42;
+  color: #c0caf5;
+  font: 600 14px ui-sans-serif, system-ui, sans-serif;
+}
+.urlprev-head button {
+  border: none;
+  background: transparent;
+  color: #7a819e;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+}
+.urlprev-head button:hover {
+  color: #c0caf5;
+}
+#urlprev-url {
+  margin: 12px 14px 0;
+  padding: 8px 10px;
+  background: #16161e;
+  border: 1px solid #2a2e42;
+  border-radius: 6px;
+  color: #7dcfff;
+  font: 13px ui-monospace, monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+#urlprev-body {
+  margin: 0;
+  padding: 12px 14px 16px;
+  overflow-y: auto;
+  color: #c0caf5;
+  font: 14px/1.5 ui-sans-serif, system-ui, sans-serif;
+}
+#urlprev-body .urlprev-card-title {
+  font-weight: 600;
+  font-size: 15px;
+  margin-bottom: 2px;
+}
+#urlprev-body .urlprev-site {
+  color: #7a819e;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+#urlprev-body .urlprev-desc {
+  white-space: pre-wrap;
+}
+#urlprev-body .urlprev-image {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #7a819e;
+}
+#urlprev-body .urlprev-image a {
+  color: #7dcfff;
+  cursor: pointer;
+  word-break: break-all;
+}
+#urlprev-body.urlprev-muted {
+  color: #7a819e;
+}
+
 /* cd tree picker (Ctrl+Shift+E while a `cd` command is typed). A directory tree rooted at
    the session cwd; choosing a node inserts it as the cd argument — never executed. */
 #cdtree {

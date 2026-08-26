@@ -1,8 +1,9 @@
 # Spec — URL link-preview
 
-- **Status:** core + fetcher bridge implemented (`crates/urlpreview` (`sampa-urlpreview`), the
-  `preview_url` bridge command + `GuardedFetch`, and the `[url_preview]` config). The **frontend
-  overlay** (the unfurl card + inline image) is the remaining piece.
+- **Status:** implemented (reference: Tauri+xterm.js build — `crates/urlpreview`
+  (`sampa-urlpreview`), the `preview_url` bridge command + `GuardedFetch`, the `[url_preview]`
+  config, and the `#urlpreview` overlay in `src/main.ts`, bound to `keybindings.preview_url`).
+  The native (sampa2) build is a follow-up.
 - **Applies to:** previewing the content behind an `http(s)` URL — a Slack-style unfurl — inside
   the terminal, opened from the keyboard. Language-agnostic behavioral contract so any frontend
   (webview or native Rust) behaves identically.
@@ -50,11 +51,14 @@ fetched.
 
 ## 4. Display
 
-- Rendered as an unfurl **card**: title (bold), site name, description or text snippet, and — for
-  an image resource or an `og:image` — the picture inline (the webview build already ships
-  `ImageAddon` sixel/iTerm support; the native build decodes via the `image` crate). All text
-  reaches the DOM via `textContent` only (the fetched page is untrusted). No HTML/CSS/JS from the
-  page is ever rendered — the panel is text + an optional decoded image, never a browser.
+- Rendered as an unfurl **card**: title (bold), site name, description or text snippet, built
+  entirely via DOM + `textContent` (the fetched page is untrusted). No HTML/CSS/JS from the page
+  is ever rendered — the panel is text, never a browser.
+- **The preview image is offered as a link, not auto-loaded.** Auto-loading a remote `<img>` in
+  the webview would be a *second, unguarded* fetch that bypasses the SSRF guard and leaks the
+  user's IP to the image host. So the card shows the image URL (opened via the existing `open_url`
+  confirm modal). Rendering the image inline **safely** — fetching its bytes through the guarded
+  bridge and showing a `data:` URI (or the terminal's `ImageAddon`) — is a documented follow-up.
 
 ## 5. Security & privacy
 
@@ -81,8 +85,10 @@ fetched.
 - **Bridge** — `preview_url(url)` gates on `enabled`, then runs `GuardedFetch` (the **only** place
   the feature opens a socket) off the async runtime. `GuardedFetch` does the DNS resolution +
   SSRF vet + manual redirect loop + capped read; the pure predicates come from the core.
-- **Frontend** *(remaining)* — a URL-detecting trigger, the `preview_url` call, and the unfurl
-  card overlay (text via `textContent`, image via the existing image addon).
+- **Frontend** — `keybindings.preview_url` (default `Ctrl+Shift+U`) detects a URL on the tracked
+  line (`detectUrl`: a bare `http(s)` token or the arg of a `curl`/`wget`/`open`/`xdg-open`),
+  calls `preview_url`, and renders the `#urlpreview` unfurl card (text via `textContent`; the
+  preview image offered as an `open_url` link, never auto-loaded — see §4).
 
 ## 7. Relationship to existing docs
 

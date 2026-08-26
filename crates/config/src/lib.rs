@@ -294,6 +294,7 @@ pub struct Keybindings {
     pub ai: String,
     pub enhance_ps: String,
     pub explain: String,
+    pub preview_url: String,
 }
 
 impl Default for Keybindings {
@@ -315,6 +316,7 @@ impl Default for Keybindings {
             ai: "Ctrl+Shift+A".into(),       // ask the Claude-API command suggester
             enhance_ps: "Ctrl+Shift+E".into(), // decorate the last ps output (spec §3)
             explain: "Ctrl+Shift+X".into(),    // describe the typed command via the Claude API
+            preview_url: "Ctrl+Shift+U".into(), // unfurl a URL on the line (opt-in; see [url_preview])
         }
     }
 }
@@ -544,6 +546,7 @@ help = "Ctrl+Shift+Slash"  # Ctrl+Shift+? — shows the shortcuts overlay
 ai = "Ctrl+Shift+A"        # ask the Claude-API command suggester (opt-in; see [ai])
 enhance_ps = "Ctrl+Shift+E"  # decorate the last `ps aux` output into a panel (see [enhance])
 explain = "Ctrl+Shift+X"     # describe the typed command line via the Claude API (opt-in; see [ai])
+preview_url = "Ctrl+Shift+U"  # unfurl an http(s) URL on the line (opt-in; see [url_preview])
 
 [rendering]
 gpu = true          # WebGL renderer (falls back to canvas if unavailable)
