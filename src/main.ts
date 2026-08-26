@@ -932,6 +932,7 @@ const HELP_ACTIONS: Array<[string, string]> = [
   ["toggle_preview", "Toggle command preview"],
   ["enhance_ps", "Enhance ps / cd / du / free / ping / df / uptime / netstat"],
   ["explain", "Explain typed command (AI)"],
+  ["preview_url", "Preview a URL on the line"],
   ["zoom_in", "Zoom in"],
   ["zoom_out", "Zoom out"],
   ["zoom_reset", "Reset zoom"],
@@ -1152,6 +1153,120 @@ window.addEventListener(
       e.preventDefault();
       e.stopPropagation();
       closeExplain();
+    }
+  },
+  true,
+);
+
+// ── URL link-preview (Ctrl+Shift+U / [url_preview]) ──────────────────────────
+// Detect an http(s) URL on the typed line and unfurl it via the guarded bridge (preview_url):
+// a compact card with title / site / description / snippet. Pressing the shortcut is the
+// deliberate network egress (opt-in, off by default). Only inert text is shown — never the
+// page's HTML/JS — and the preview image is offered as a link, not auto-loaded (auto-loading a
+// remote <img> would be a second, unguarded fetch that leaks the user's IP to the image host).
+interface UrlPreview {
+  url: string;
+  kind: "html" | "image" | "text" | "other";
+  content_type: string | null;
+  title: string | null;
+  description: string | null;
+  site_name: string | null;
+  image_url: string | null;
+  text_snippet: string | null;
+}
+
+const urlprevEl = document.getElementById("urlpreview")!;
+const urlprevTitle = document.getElementById("urlprev-title")!;
+const urlprevUrl = document.getElementById("urlprev-url")!;
+const urlprevBody = document.getElementById("urlprev-body")!;
+let urlprevSeq = 0; // guards against out-of-order async results
+
+// The first http(s) URL on the line: a bare URL token, or the argument of a fetch-like command
+// (curl/wget/open/xdg-open). Returns null if there's nothing to preview.
+function detectUrl(line: string): string | null {
+  for (const tok of line.trim().split(/\s+/)) {
+    // Strip surrounding quotes an URL might be wrapped in.
+    const t = tok.replace(/^['"]|['"]$/g, "");
+    if (/^https?:\/\/\S+$/i.test(t)) return t;
+  }
+  return null;
+}
+
+function closeUrlPreview(): void {
+  if (urlprevEl.hidden) return;
+  urlprevEl.hidden = true;
+  activeTab()?.term.focus();
+}
+
+function setUrlPrevMessage(text: string): void {
+  urlprevBody.textContent = text; // status/error — textContent, never innerHTML
+  urlprevBody.classList.add("urlprev-muted");
+}
+
+// Build the unfurl card entirely via DOM + textContent — the fetched page is untrusted.
+function renderUrlCard(p: UrlPreview): void {
+  urlprevBody.classList.remove("urlprev-muted");
+  urlprevBody.replaceChildren();
+  const add = (cls: string, text: string) => {
+    const d = document.createElement("div");
+    d.className = cls;
+    d.textContent = text;
+    urlprevBody.appendChild(d);
+    return d;
+  };
+  if (p.title) add("urlprev-card-title", p.title);
+  if (p.site_name) add("urlprev-site", p.site_name);
+  const desc = p.description ?? p.text_snippet;
+  if (desc) add("urlprev-desc", desc);
+  if (!p.title && !desc) {
+    add("urlprev-desc", p.kind === "image" ? "(image)" : "(no preview text)");
+  }
+  // Offer the preview image as a link — never auto-load it (that would be an unguarded fetch).
+  const img = p.kind === "image" ? p.url : p.image_url;
+  if (img) {
+    const row = add("urlprev-image", "🖼 ");
+    const a = document.createElement("a");
+    a.textContent = img;
+    a.addEventListener("click", () => void openLink(img));
+    row.appendChild(a);
+  }
+}
+
+async function previewUrlCurrent(): Promise<void> {
+  const url = detectUrl(activeTab()?.typed ?? "");
+  urlprevEl.hidden = false;
+  if (!url) {
+    urlprevTitle.textContent = "Preview";
+    urlprevUrl.textContent = "";
+    setUrlPrevMessage("No http(s) URL on the line to preview.");
+    return;
+  }
+  urlprevTitle.textContent = "Preview";
+  urlprevUrl.textContent = url;
+  setUrlPrevMessage("Fetching…");
+  const seq = ++urlprevSeq;
+  try {
+    const p = await invoke<UrlPreview>("preview_url", { url });
+    if (seq !== urlprevSeq || urlprevEl.hidden) return; // superseded / dismissed
+    urlprevUrl.textContent = p.url; // the final URL (after redirects)
+    renderUrlCard(p);
+  } catch (e) {
+    if (seq !== urlprevSeq || urlprevEl.hidden) return;
+    setUrlPrevMessage(String(e)); // e.g. "URL preview is disabled…" / an SSRF refusal
+  }
+}
+
+document.getElementById("urlprev-close")!.addEventListener("click", closeUrlPreview);
+urlprevEl.addEventListener("mousedown", (e) => {
+  if (e.target === urlprevEl) closeUrlPreview(); // click backdrop to dismiss
+});
+window.addEventListener(
+  "keydown",
+  (e) => {
+    if (!urlprevEl.hidden && e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      closeUrlPreview();
     }
   },
   true,
@@ -3307,6 +3422,7 @@ function rebuildBindings(): void {
     [parseChord(kb.ai), openAi],
     [parseChord(kb.enhance_ps), enhanceShortcut],
     [parseChord(kb.explain), () => void explainCurrent()],
+    [parseChord(kb.preview_url), () => void previewUrlCurrent()],
   ];
 }
 rebuildBindings();
