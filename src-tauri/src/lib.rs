@@ -1004,6 +1004,100 @@ fn open_url(url: String) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+// --- URL link-preview (opt-in second network surface — docs/spec-url-preview.md) -----------
+
+/// The bridge's [`sampa_urlpreview::Fetch`] implementation: the one place the URL-preview
+/// feature opens a socket. Enforces the security boundary the core can't (§13): **http(s) only**,
+/// an **SSRF guard** that rejects loopback/private/link-local/ULA hosts (resolved before each
+/// request), a **byte cap**, a **timeout**, and a **bounded, re-vetted redirect loop**.
+struct GuardedFetch {
+    max_bytes: u64,
+    timeout: std::time::Duration,
+    max_redirects: u8,
+}
+
+/// Resolve `host` and reject unless **every** resolved address is public (SSRF guard). Resolving
+/// all addresses (not just the first) closes the "one public, one private" bypass; re-resolving
+/// on each redirect hop bounds — though a determined DNS-rebind between this check and ureq's own
+/// resolution is a documented residual risk (spec §5).
+fn vet_host(host: &str) -> Result<(), String> {
+    use std::net::ToSocketAddrs;
+    // An IP literal resolves to itself; a hostname resolves via the system resolver.
+    let addrs: Vec<std::net::SocketAddr> = (host, 0u16)
+        .to_socket_addrs()
+        .map_err(|e| format!("cannot resolve {host}: {e}"))?
+        .collect();
+    if addrs.is_empty() {
+        return Err(format!("{host} did not resolve"));
+    }
+    if let Some(bad) = addrs.iter().find(|a| !sampa_urlpreview::ip_is_public(a.ip())) {
+        return Err(format!("refusing to fetch a non-public address ({})", bad.ip()));
+    }
+    Ok(())
+}
+
+impl sampa_urlpreview::Fetch for GuardedFetch {
+    fn get(&self, url: &str) -> Result<sampa_urlpreview::Fetched, String> {
+        let agent = ureq::AgentBuilder::new()
+            .timeout(self.timeout)
+            .redirects(0) // we follow manually so each hop is re-vetted
+            .build();
+        let mut current = url.to_string();
+        for _ in 0..=self.max_redirects {
+            let (_https, host) = sampa_urlpreview::http_host(&current)?;
+            vet_host(&host)?;
+            match agent.get(&current).call() {
+                Ok(resp) => {
+                    let content_type = resp.header("content-type").map(str::to_string);
+                    let final_url = resp.get_url().to_string();
+                    let mut body = Vec::new();
+                    use std::io::Read;
+                    resp.into_reader()
+                        .take(self.max_bytes)
+                        .read_to_end(&mut body)
+                        .map_err(|e| format!("read error: {e}"))?;
+                    return Ok(sampa_urlpreview::Fetched { final_url, content_type, body });
+                }
+                Err(ureq::Error::Status(code, resp)) if (300..400).contains(&code) => {
+                    let loc = resp.header("location").ok_or("redirect without Location")?;
+                    current = sampa_urlpreview::resolve_url(&current, loc)
+                        .ok_or("redirect to a non-http(s) target")?;
+                }
+                Err(ureq::Error::Status(code, _)) => return Err(format!("HTTP {code}")),
+                Err(e) => return Err(e.to_string()),
+            }
+        }
+        Err("too many redirects".into())
+    }
+}
+
+/// Opt-in URL link-preview (§13, docs/spec-url-preview.md): fetch `url` and return a link-unfurl
+/// (title/description/site/image/snippet). This is Sampa's **second** network surface after the
+/// AI feature, so it is inert unless `[url_preview] enabled = true`. The fetch runs behind the
+/// SSRF/size/redirect/timeout guards in [`GuardedFetch`], off the async runtime. Purely
+/// informational — nothing is composed or run; egress happens only on this explicit user action.
+#[tauri::command]
+async fn preview_url(
+    config: State<'_, ConfigState>,
+    url: String,
+) -> Result<sampa_urlpreview::Preview, String> {
+    let cfg = { config.current.lock().unwrap().url_preview.clone() };
+    if !cfg.enabled {
+        return Err("URL preview is disabled — set [url_preview] enabled = true in config.toml".into());
+    }
+    // Reject a non-http(s) URL up front (before spawning) so the error is immediate.
+    sampa_urlpreview::http_host(&url)?;
+    let fetcher = GuardedFetch {
+        max_bytes: cfg.max_bytes,
+        timeout: std::time::Duration::from_millis(cfg.timeout_ms),
+        max_redirects: cfg.max_redirects,
+    };
+    // ureq blocks; keep it off the async runtime thread.
+    tokio::task::spawn_blocking(move || sampa_urlpreview::fetch_preview(&fetcher, &url))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 /// Opt-in Claude-API command suggester (§13, AI-integration doc). Turns a
 /// natural-language `prompt` into a single command + explanation via one Messages
 /// API call. This is Sampa's ONLY outbound network surface, so it is inert unless
@@ -1247,6 +1341,7 @@ pub fn run() {
             helm_help_raw,
             aws_help,
             aws_help_raw,
+            preview_url,
             render_preview,
             decorate_ps,
             ps_enrich,

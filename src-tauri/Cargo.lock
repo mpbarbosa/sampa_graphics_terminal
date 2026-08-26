@@ -2820,15 +2820,24 @@ dependencies = [
  "sampa-ps-decorate",
  "sampa-shellint",
  "sampa-uptimedec",
+ "sampa-urlpreview",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
  "tokio",
+ "ureq",
 ]
 
 [[package]]
 name = "sampa-uptimedec"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "sampa-urlpreview"
 version = "0.1.0"
 dependencies = [
  "serde",
