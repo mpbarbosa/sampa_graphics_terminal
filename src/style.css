@@ -790,7 +790,7 @@ body {
   color: #7a819e;
 }
 
-/* URL link-preview (Ctrl+Shift+U / [url_preview]). An unfurl card for a URL on the line —
+/* URL link-preview (Ctrl+Shift+L / [url_preview]). An unfurl card for a URL on the line —
    fetched through the guarded bridge; only inert text is shown, never the page's HTML/JS, and
    the preview image is offered as a link (not auto-loaded, which would be an unguarded fetch). */
 #urlpreview {
