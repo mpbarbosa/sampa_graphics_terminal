@@ -1046,7 +1046,16 @@ impl sampa_urlpreview::Fetch for GuardedFetch {
         for _ in 0..=self.max_redirects {
             let (_https, host) = sampa_urlpreview::http_host(&current)?;
             vet_host(&host)?;
+            // ureq (with redirects disabled) surfaces a 3xx as `Ok(resp)` with a 3xx status —
+            // NOT as `Err(Status)`, which is only ≥400. Handle a redirect in BOTH arms so a
+            // Location is always followed (and re-vetted) regardless of that quirk.
+            let follow = |resp: ureq::Response| -> Result<String, String> {
+                let loc = resp.header("location").ok_or("redirect without Location")?;
+                sampa_urlpreview::resolve_url(&resp.get_url().to_string(), loc)
+                    .ok_or_else(|| "redirect to a non-http(s) target".to_string())
+            };
             match agent.get(&current).call() {
+                Ok(resp) if (300..400).contains(&resp.status()) => current = follow(resp)?,
                 Ok(resp) => {
                     let content_type = resp.header("content-type").map(str::to_string);
                     let final_url = resp.get_url().to_string();
@@ -1059,9 +1068,7 @@ impl sampa_urlpreview::Fetch for GuardedFetch {
                     return Ok(sampa_urlpreview::Fetched { final_url, content_type, body });
                 }
                 Err(ureq::Error::Status(code, resp)) if (300..400).contains(&code) => {
-                    let loc = resp.header("location").ok_or("redirect without Location")?;
-                    current = sampa_urlpreview::resolve_url(&current, loc)
-                        .ok_or("redirect to a non-http(s) target")?;
+                    current = follow(resp)?
                 }
                 Err(ureq::Error::Status(code, _)) => return Err(format!("HTTP {code}")),
                 Err(e) => return Err(e.to_string()),

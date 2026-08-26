@@ -421,10 +421,23 @@ pub fn ip_is_public(ip: std::net::IpAddr) -> bool {
                 || o[0] >= 240) // 240.0.0.0/4 reserved
         }
         IpAddr::V6(v6) => {
-            if let Some(mapped) = v6.to_ipv4_mapped() {
-                return ip_is_public(IpAddr::V4(mapped));
-            }
             let seg = v6.segments();
+            // Vet any embedded IPv4 against the v4 rules — each can route to an internal target:
+            // IPv4-mapped (::ffff:a.b.c.d) AND IPv4-compatible (::a.b.c.d), both `::…/96` with the
+            // last 32 bits the v4; plus NAT64 (64:ff9b::a.b.c.d). `to_ipv4_mapped` alone missed
+            // the compatible and NAT64 forms.
+            if seg[..5].iter().all(|&s| s == 0) && (seg[5] == 0 || seg[5] == 0xffff) {
+                let v4 = std::net::Ipv4Addr::new(
+                    (seg[6] >> 8) as u8, seg[6] as u8, (seg[7] >> 8) as u8, seg[7] as u8,
+                );
+                return ip_is_public(IpAddr::V4(v4));
+            }
+            if seg[0] == 0x0064 && seg[1] == 0xff9b && seg[2..6].iter().all(|&s| s == 0) {
+                let v4 = std::net::Ipv4Addr::new(
+                    (seg[6] >> 8) as u8, seg[6] as u8, (seg[7] >> 8) as u8, seg[7] as u8,
+                );
+                return ip_is_public(IpAddr::V4(v4));
+            }
             !(v6.is_loopback()
                 || v6.is_unspecified()
                 || v6.is_multicast()
@@ -657,7 +670,15 @@ mod tests {
         assert!(!pub_("::1"));
         assert!(!pub_("fc00::1"));
         assert!(!pub_("fe80::1"));
-        assert!(!pub_("::ffff:127.0.0.1"));
+        assert!(!pub_("::ffff:127.0.0.1")); // IPv4-mapped → loopback
+        // Embedded-IPv4 bypasses the review flagged: compatible + NAT64 must vet the inner v4.
+        assert!(!pub_("::7f00:1")); // IPv4-compatible ::127.0.0.1 → loopback
+        assert!(!pub_("64:ff9b::a9fe:a9fe")); // NAT64 of 169.254.169.254 (metadata)
+        assert!(!pub_("64:ff9b::a00:1")); // NAT64 of 10.0.0.1 (private)
+        // …but a global IPv4 embedded in mapped / NAT64 stays public.
+        assert!(pub_("::ffff:1.1.1.1"));
+        assert!(pub_("64:ff9b::808:808")); // NAT64 of 8.8.8.8
+        assert!(pub_("2606:4700:4700::1111")); // native global v6 unaffected
     }
 
     #[test]
