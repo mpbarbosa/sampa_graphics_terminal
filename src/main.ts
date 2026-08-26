@@ -1221,14 +1221,34 @@ function renderUrlCard(p: UrlPreview): void {
   if (!p.title && !desc) {
     add("urlprev-desc", p.kind === "image" ? "(image)" : "(no preview text)");
   }
-  // Offer the preview image as a link — never auto-load it (that would be an unguarded fetch).
+  // The preview image loads inline on click, fetched through the guarded preview_image bridge
+  // (→ a data: URI) — never via a bare remote <img>, which would be a second unguarded fetch
+  // that leaks the user's IP to the image host. Deliberate: it loads only when the user asks.
   const img = p.kind === "image" ? p.url : p.image_url;
   if (img) {
-    const row = add("urlprev-image", "🖼 ");
+    const row = add("urlprev-image", "");
     const a = document.createElement("a");
-    a.textContent = img;
-    a.addEventListener("click", () => void openLink(img));
+    a.textContent = `🖼 Show image (${img})`;
+    a.addEventListener("click", () => void loadInlineImage(row, img));
     row.appendChild(a);
+  }
+}
+
+// Fetch the preview image through the guarded bridge and swap the link for an inline <img>
+// whose src is the returned data: URI (so the webview makes no request of its own).
+async function loadInlineImage(row: HTMLElement, url: string): Promise<void> {
+  row.textContent = "Loading image…";
+  try {
+    const dataUri = await invoke<string>("preview_image", { url });
+    if (urlprevEl.hidden) return;
+    row.replaceChildren();
+    const im = document.createElement("img");
+    im.className = "urlprev-img";
+    im.src = dataUri; // a data: URI produced by the backend — no network from the webview
+    im.alt = "preview image";
+    row.appendChild(im);
+  } catch (e) {
+    row.textContent = String(e); // e.g. "not an image (text/html)" / an SSRF refusal
   }
 }
 

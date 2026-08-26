@@ -54,20 +54,22 @@ fetched.
 - Rendered as an unfurl **card**: title (bold), site name, description or text snippet, built
   entirely via DOM + `textContent` (the fetched page is untrusted). No HTML/CSS/JS from the page
   is ever rendered — the panel is text, never a browser.
-- **The preview image is offered as a link, not auto-loaded.** Auto-loading a remote `<img>` in
-  the webview would be a *second, unguarded* fetch that bypasses the SSRF guard and leaks the
-  user's IP to the image host. So the card shows the image URL (opened via the existing `open_url`
-  confirm modal). Rendering the image inline **safely** — fetching its bytes through the guarded
-  bridge and showing a `data:` URI (or the terminal's `ImageAddon`) — is a documented follow-up.
+- **The preview image loads inline on click, through the guard.** A remote `<img>` is never used
+  — that would be a *second, unguarded* fetch that bypasses the SSRF guard and leaks the user's IP
+  to the image host. Instead the card shows a "🖼 Show image" link; clicking it calls the
+  `preview_image` bridge command, which fetches the bytes through the same `GuardedFetch` (SSRF /
+  size / timeout / redirects), accepts only `image/*`, and returns a `data:` URI the webview
+  renders with no request of its own. The load is deliberate — it happens only on that click.
 
 ## 5. Security & privacy
 
 - **Opt-in egress.** Off by default; a preview is a deliberate, per-invocation user action, like
   the AI egress and the screenshot capture. Never auto-fetch.
-- **SSRF is the load-bearing guard** — see §3. **Residual risk:** a DNS rebind between the vet
-  (`vet_host`) and ureq's own resolution is not fully closed (ureq 2 doesn't expose IP pinning);
-  this is documented and bounded by the short timeout. A future hardening is to pin the connection
-  to the vetted IP (or a resolver hook).
+- **SSRF is the load-bearing guard** — see §3. The IP-vet runs inside a custom `ureq::Resolver`
+  (`GuardedResolver`), so ureq connects to **exactly** the addresses it vetted (and re-invokes it
+  per redirect hop) — there is a single resolution used for both the vet and the connection, which
+  **closes the DNS-rebind window** a separate pre-check would leave open. TLS still validates
+  against the URL's hostname.
 - **No credential leakage** — no cookies, auth headers, or `Referer`; the URL is treated as
   data. The fetched content is untrusted and only ever shown as inert text/image.
 - **Bounded resources** — byte cap + timeout + redirect cap keep a hostile endpoint from hanging
@@ -83,12 +85,16 @@ fetched.
 - **Config** — `[url_preview]` (`sampa_config::UrlPreview`): `enabled` (default false),
   `max_bytes`, `timeout_ms`, `max_redirects`.
 - **Bridge** — `preview_url(url)` gates on `enabled`, then runs `GuardedFetch` (the **only** place
-  the feature opens a socket) off the async runtime. `GuardedFetch` does the DNS resolution +
-  SSRF vet + manual redirect loop + capped read; the pure predicates come from the core.
+  the feature opens a socket) off the async runtime. `GuardedFetch` does the manual redirect loop
+  + capped read; its `GuardedResolver` (a `ureq::Resolver`) does the DNS resolution + SSRF vet in
+  one step so ureq connects to exactly the vetted IPs. `preview_image(url)` fetches a preview image
+  through the same guard, accepts only `image/*`, and returns a `data:` URI for inline display. The
+  pure predicates come from the core.
 - **Frontend** — `keybindings.preview_url` (default `Ctrl+Shift+U`) detects a URL on the tracked
   line (`detectUrl`: a bare `http(s)` token or the arg of a `curl`/`wget`/`open`/`xdg-open`),
   calls `preview_url`, and renders the `#urlpreview` unfurl card (text via `textContent`; the
-  preview image offered as an `open_url` link, never auto-loaded — see §4).
+  preview image loads inline on click via `preview_image` → a `data:` URI, never a remote `<img>`
+  — see §4).
 
 ## 7. Relationship to existing docs
 
