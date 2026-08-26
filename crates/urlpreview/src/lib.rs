@@ -374,6 +374,66 @@ fn decode_entities(s: &str) -> String {
     out
 }
 
+// --- SSRF vetting (pure predicates; the actual DNS resolution + socket live in the bridge) ---
+
+/// Split `scheme://host…` into `(is_https, host_without_port)`, requiring an `http(s)` scheme.
+/// Drops any `user@` userinfo and the `:port`, and unwraps a `[…]` IPv6 literal. This is the
+/// parse half of the SSRF guard; the bridge resolves the returned host and checks each IP with
+/// [`ip_is_public`].
+pub fn http_host(url: &str) -> Result<(bool, String), String> {
+    let lower = url.to_ascii_lowercase();
+    let https = lower.starts_with("https://");
+    if !https && !lower.starts_with("http://") {
+        return Err("only http(s) URLs can be previewed".into());
+    }
+    let rest = url.split_once("://").ok_or("malformed URL")?.1;
+    let authority = &rest[..rest.find(['/', '?', '#']).unwrap_or(rest.len())];
+    let host_port = authority.rsplit_once('@').map(|(_, h)| h).unwrap_or(authority);
+    let host = if host_port.starts_with('[') {
+        host_port.split_once(']').map(|(h, _)| &h[1..]).unwrap_or(host_port) // [ipv6]:port
+    } else {
+        host_port.rsplit_once(':').map(|(h, _)| h).unwrap_or(host_port)
+    };
+    if host.is_empty() {
+        return Err("URL has no host".into());
+    }
+    Ok((https, host.to_string()))
+}
+
+/// True only for a globally-routable address — the SSRF allowlist. Everything else (loopback,
+/// RFC-1918 private, link-local incl. the 169.254.169.254 cloud-metadata IP, CGNAT, ULA,
+/// multicast, unspecified, reserved, IPv4-mapped-v6) is rejected. The bridge calls this on
+/// **every** address a host resolves to, on **every** redirect hop.
+pub fn ip_is_public(ip: std::net::IpAddr) -> bool {
+    use std::net::IpAddr;
+    match ip {
+        IpAddr::V4(v4) => {
+            let o = v4.octets();
+            !(v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_broadcast()
+                || v4.is_unspecified()
+                || v4.is_multicast()
+                || v4.is_documentation()
+                || o[0] == 0
+                || (o[0] == 100 && (o[1] & 0xc0) == 64) // 100.64.0.0/10 CGNAT
+                || o[0] >= 240) // 240.0.0.0/4 reserved
+        }
+        IpAddr::V6(v6) => {
+            if let Some(mapped) = v6.to_ipv4_mapped() {
+                return ip_is_public(IpAddr::V4(mapped));
+            }
+            let seg = v6.segments();
+            !(v6.is_loopback()
+                || v6.is_unspecified()
+                || v6.is_multicast()
+                || (seg[0] & 0xfe00) == 0xfc00 // fc00::/7 unique-local
+                || (seg[0] & 0xffc0) == 0xfe80) // fe80::/10 link-local
+        }
+    }
+}
+
 // --- URL resolution ------------------------------------------------------------------------
 
 /// Resolve `href` against the page's `base` URL to an absolute `http(s)` URL. Handles absolute
@@ -563,6 +623,41 @@ mod tests {
         assert_eq!(classify_content_type("text/plain"), PreviewKind::Text);
         assert_eq!(classify_content_type("application/pdf"), PreviewKind::Other);
         assert_eq!(classify_content_type(""), PreviewKind::Html); // unknown → attempt an unfurl
+    }
+
+    #[test]
+    fn http_host_extracts_and_gates_scheme() {
+        assert_eq!(http_host("https://example.com/a/b?x=1").unwrap(), (true, "example.com".into()));
+        assert_eq!(http_host("http://example.com").unwrap(), (false, "example.com".into()));
+        assert_eq!(http_host("https://user:pw@host.tld:8443/p").unwrap(), (true, "host.tld".into()));
+        assert_eq!(http_host("http://[::1]:80/").unwrap(), (false, "::1".into()));
+        assert!(http_host("ftp://example.com").is_err()); // non-http scheme rejected
+        assert!(http_host("file:///etc/passwd").is_err());
+    }
+
+    #[test]
+    fn ip_is_public_is_the_ssrf_allowlist() {
+        use std::net::IpAddr;
+        let pub_ = |s: &str| ip_is_public(s.parse::<IpAddr>().unwrap());
+        // Public — allowed.
+        assert!(pub_("1.1.1.1"));
+        assert!(pub_("93.184.216.34")); // example.com
+        assert!(pub_("2606:4700:4700::1111"));
+        // Rejected: loopback / private / link-local (incl. cloud metadata) / CGNAT / reserved.
+        assert!(!pub_("127.0.0.1"));
+        assert!(!pub_("10.0.0.5"));
+        assert!(!pub_("192.168.1.1"));
+        assert!(!pub_("172.16.0.1"));
+        assert!(!pub_("169.254.169.254")); // AWS/GCP metadata endpoint
+        assert!(!pub_("100.64.1.1")); // CGNAT
+        assert!(!pub_("0.0.0.0"));
+        assert!(!pub_("255.255.255.255"));
+        assert!(!pub_("240.0.0.1")); // reserved
+        // IPv6: loopback / ULA / link-local / IPv4-mapped-private.
+        assert!(!pub_("::1"));
+        assert!(!pub_("fc00::1"));
+        assert!(!pub_("fe80::1"));
+        assert!(!pub_("::ffff:127.0.0.1"));
     }
 
     #[test]

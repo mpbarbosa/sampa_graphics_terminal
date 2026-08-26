@@ -35,6 +35,9 @@ pub struct Config {
     /// `ps(1)` output enhancement (docs/spec-ps-output-enhancement.md). Presentation
     /// only — piped/redirected output is always byte-identical.
     pub enhance: Enhance,
+    /// Opt-in URL link-preview (docs/spec-url-preview.md). Off by default — fetching a
+    /// URL is network egress, so it is a deliberate second network surface (§13).
+    pub url_preview: UrlPreview,
 }
 
 impl Default for Config {
@@ -53,6 +56,7 @@ impl Default for Config {
             features: Features::default(),
             ai: Ai::default(),
             enhance: Enhance::default(),
+            url_preview: UrlPreview::default(),
         }
     }
 }
@@ -363,6 +367,29 @@ impl Default for Ai {
     }
 }
 
+/// Opt-in URL link-preview (docs/spec-url-preview.md). Fetching a URL is network egress and a
+/// privacy-sensitive action, so this is a **deliberate second network surface** after `[ai]`,
+/// off by default. The fetcher enforces the limits below plus an SSRF guard (http(s) only,
+/// private/loopback/link-local hosts rejected) — see the bridge.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct UrlPreview {
+    /// Master switch. When false, no URL is ever fetched.
+    pub enabled: bool,
+    /// Max response bytes read before the fetch is aborted (a hostile server can't OOM us).
+    pub max_bytes: u64,
+    /// Per-request timeout in milliseconds (connect + read).
+    pub timeout_ms: u64,
+    /// Max HTTP redirects followed; each hop is re-vetted by the SSRF guard.
+    pub max_redirects: u8,
+}
+
+impl Default for UrlPreview {
+    fn default() -> Self {
+        Self { enabled: false, max_bytes: 2_000_000, timeout_ms: 5_000, max_redirects: 5 }
+    }
+}
+
 /// The `ps(1)` output-enhancement level (spec §3). Levels are progressive — each builds
 /// on the one below and needs more terminal width; below a level's width threshold the
 /// emulator falls back one level. Piped/redirected `ps` is never enhanced regardless.
@@ -542,6 +569,12 @@ ps = "quiet"            # off | quiet | bars | inspector (progressive; quiet is 
 min_width = 80          # below this many columns, no enhancement at all (raw passthrough)
 min_width_bars = 100    # below this, the bars level falls back to quiet
 min_width_inspector = 120  # below this, the inspector level falls back to bars
+
+[url_preview]           # opt-in URL link-preview — a deliberate SECOND network surface (§13)
+enabled = false         # master switch; off means no URL is ever fetched
+max_bytes = 2000000     # abort the fetch past this many response bytes
+timeout_ms = 5000       # per-request connect + read timeout
+max_redirects = 5       # max redirects followed; each hop is re-vetted (SSRF guard)
 "##;
 
 #[cfg(test)]
