@@ -42,6 +42,7 @@ cargo test  --manifest-path crates/dockerhelp/Cargo.toml  # docker cheat-sheet: 
 cargo test  --manifest-path crates/kubectlhelp/Cargo.toml # kubectl cheat-sheet: parse_kubectl_help → grouped commands (fails safe to None)
 cargo test  --manifest-path crates/helmhelp/Cargo.toml    # helm cheat-sheet: parse_helm_help → Available Commands (fails safe to None)
 cargo test  --manifest-path crates/awshelp/Cargo.toml     # aws cheat-sheet: parse_aws_help → service/command names, ANSI-stripped (fails safe to None)
+cargo test  --manifest-path crates/urlpreview/Cargo.toml  # URL preview: fetch_preview<Fetch> → unfurl model (fake transport, no network)
 ps aux | cargo run --example decorate --manifest-path crates/ps-decorate/Cargo.toml  # eyeball the 1a decorator on live ps output
 cargo build --manifest-path src-tauri/Cargo.toml          # the Tauri app crate (needs GTK/webkit deps)
 

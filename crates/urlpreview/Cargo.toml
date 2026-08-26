@@ -1,0 +1,16 @@
+[package]
+name = "sampa-urlpreview"
+version = "0.1.0"
+edition = "2021"
+description = "Parse a fetched web page into a link-preview (unfurl) model for the URL preview panel."
+license = "MIT"
+
+# Headless core for the URL preview feature (docs feasibility assessment): given a page fetched
+# over HTTP, produce a link-unfurl model (title / description / site / image / text snippet). The
+# ONE impure operation — the fetch — is abstracted behind a `Fetch` trait so the whole core is
+# unit-tested against a fake transport with NO network, exactly like `sampa-ai`. The real
+# socket-opening fetcher (with the SSRF / size / redirect guards) is the bridge's concern and is
+# deliberately NOT in this crate. Pure `std` + serde; no shell, no Tauri. Fails safe: a page it
+# can't make sense of yields a best-effort preview carrying just the URL.
+[dependencies]
+serde = { version = "1", features = ["derive"] }
