@@ -878,6 +878,14 @@ body {
   cursor: pointer;
   word-break: break-all;
 }
+#urlprev-body .urlprev-img {
+  display: block;
+  max-width: 100%;
+  max-height: 320px;
+  margin-top: 4px;
+  border: 1px solid #2a2e42;
+  border-radius: 6px;
+}
 #urlprev-body.urlprev-muted {
   color: #7a819e;
 }

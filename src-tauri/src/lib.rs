@@ -1016,24 +1016,30 @@ struct GuardedFetch {
     max_redirects: u8,
 }
 
-/// Resolve `host` and reject unless **every** resolved address is public (SSRF guard). Resolving
-/// all addresses (not just the first) closes the "one public, one private" bypass; re-resolving
-/// on each redirect hop bounds — though a determined DNS-rebind between this check and ureq's own
-/// resolution is a documented residual risk (spec §5).
-fn vet_host(host: &str) -> Result<(), String> {
-    use std::net::ToSocketAddrs;
-    // An IP literal resolves to itself; a hostname resolves via the system resolver.
-    let addrs: Vec<std::net::SocketAddr> = (host, 0u16)
-        .to_socket_addrs()
-        .map_err(|e| format!("cannot resolve {host}: {e}"))?
-        .collect();
-    if addrs.is_empty() {
-        return Err(format!("{host} did not resolve"));
+/// A ureq resolver that resolves the host and hands back **only** vetted, globally-routable
+/// addresses — rejecting if **any** resolved IP is non-public. Because ureq connects to exactly
+/// the addresses this returns (and re-invokes it per redirect hop, since redirects are manual),
+/// there is a single resolution used for both the vet and the connection — **closing the
+/// DNS-rebind window** that a separate pre-check + ureq's own resolution left open (spec §5).
+/// TLS still uses the URL's hostname for SNI/cert validation.
+struct GuardedResolver;
+
+impl ureq::Resolver for GuardedResolver {
+    fn resolve(&self, netloc: &str) -> std::io::Result<Vec<std::net::SocketAddr>> {
+        use std::io::{Error, ErrorKind};
+        use std::net::ToSocketAddrs;
+        let addrs: Vec<std::net::SocketAddr> = netloc.to_socket_addrs()?.collect();
+        if addrs.is_empty() {
+            return Err(Error::new(ErrorKind::Other, "host did not resolve"));
+        }
+        if let Some(bad) = addrs.iter().find(|a| !sampa_urlpreview::ip_is_public(a.ip())) {
+            return Err(Error::new(
+                ErrorKind::PermissionDenied,
+                format!("refusing to connect to a non-public address ({})", bad.ip()),
+            ));
+        }
+        Ok(addrs)
     }
-    if let Some(bad) = addrs.iter().find(|a| !sampa_urlpreview::ip_is_public(a.ip())) {
-        return Err(format!("refusing to fetch a non-public address ({})", bad.ip()));
-    }
-    Ok(())
 }
 
 impl sampa_urlpreview::Fetch for GuardedFetch {
@@ -1041,11 +1047,13 @@ impl sampa_urlpreview::Fetch for GuardedFetch {
         let agent = ureq::AgentBuilder::new()
             .timeout(self.timeout)
             .redirects(0) // we follow manually so each hop is re-vetted
+            .resolver(GuardedResolver) // connect only to vetted public IPs (no rebind window)
             .build();
         let mut current = url.to_string();
         for _ in 0..=self.max_redirects {
-            let (_https, host) = sampa_urlpreview::http_host(&current)?;
-            vet_host(&host)?;
+            // Enforce http(s)-only on every hop; the SSRF IP-vet happens in GuardedResolver at
+            // connect time (so the resolved IP is the one both vetted and connected to).
+            sampa_urlpreview::http_host(&current)?;
             // ureq (with redirects disabled) surfaces a 3xx as `Ok(resp)` with a 3xx status —
             // NOT as `Err(Status)`, which is only ≥400. Handle a redirect in BOTH arms so a
             // Location is always followed (and re-vetted) regardless of that quirk.
@@ -1103,6 +1111,42 @@ async fn preview_url(
     tokio::task::spawn_blocking(move || sampa_urlpreview::fetch_preview(&fetcher, &url))
         .await
         .map_err(|e| e.to_string())?
+}
+
+/// Fetch a preview **image** through the same guard and return it as a `data:` URI, so the
+/// unfurl card can show the picture inline **without the webview making its own (unguarded)
+/// request** — that would bypass the SSRF guard and leak the user's IP to the image host. Same
+/// opt-in gate + `GuardedFetch` (SSRF/size/timeout/redirects) as `preview_url`; only `image/*`
+/// content is accepted (an HTML page can't be smuggled in as an "image"). Egress happens only on
+/// the explicit user action (clicking the card's image).
+#[tauri::command]
+async fn preview_image(
+    config: State<'_, ConfigState>,
+    url: String,
+) -> Result<String, String> {
+    let cfg = { config.current.lock().unwrap().url_preview.clone() };
+    if !cfg.enabled {
+        return Err("URL preview is disabled — set [url_preview] enabled = true in config.toml".into());
+    }
+    sampa_urlpreview::http_host(&url)?;
+    let fetcher = GuardedFetch {
+        max_bytes: cfg.max_bytes,
+        timeout: std::time::Duration::from_millis(cfg.timeout_ms),
+        max_redirects: cfg.max_redirects,
+    };
+    tokio::task::spawn_blocking(move || {
+        use sampa_urlpreview::Fetch;
+        let page = fetcher.get(&url)?;
+        let ct = page.content_type.as_deref().unwrap_or("");
+        let base = ct.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+        if !base.starts_with("image/") {
+            return Err(format!("not an image ({})", if base.is_empty() { "unknown type" } else { &base }));
+        }
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&page.body);
+        Ok(format!("data:{base};base64,{b64}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Opt-in Claude-API command suggester (§13, AI-integration doc). Turns a
@@ -1349,6 +1393,7 @@ pub fn run() {
             aws_help,
             aws_help_raw,
             preview_url,
+            preview_image,
             render_preview,
             decorate_ps,
             ps_enrich,
