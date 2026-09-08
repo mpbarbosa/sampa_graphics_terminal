@@ -1158,7 +1158,7 @@ window.addEventListener(
   true,
 );
 
-// ── URL link-preview (Ctrl+Shift+U / [url_preview]) ──────────────────────────
+// ── URL link-preview (Ctrl+Shift+L / [url_preview]) ──────────────────────────
 // Detect an http(s) URL on the typed line and unfurl it via the guarded bridge (preview_url):
 // a compact card with title / site / description / snippet. Pressing the shortcut is the
 // deliberate network egress (opt-in, off by default). Only inert text is shown — never the
