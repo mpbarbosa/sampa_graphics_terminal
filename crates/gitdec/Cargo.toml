@@ -1,0 +1,14 @@
+[package]
+name = "sampa-gitdec"
+version = "0.1.0"
+edition = "2021"
+description = "Parse git status --porcelain output into a grouped working-tree model for the git status preview."
+license = "MIT"
+
+# Headless parse core — turns `git status --porcelain -b` into the grouped model the
+# frontend renders (branch/ahead/behind + staged/unstaged/untracked/conflicted files).
+# Porcelain v1 is git's stable, locale-independent machine format, so it's the parse
+# target. Pure (serde only, for the IPC model); no shell, no Tauri, no git invocation.
+# Fails safe to None when the input isn't porcelain output.
+[dependencies]
+serde = { version = "1", features = ["derive"] }

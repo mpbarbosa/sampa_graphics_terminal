@@ -191,6 +191,27 @@ interface Conn {
   process: string | null;
 }
 
+// One changed path from run_git_status, already grouped by the core.
+interface GitChange {
+  code: string;
+  label: string;
+  path: string;
+  orig: string | null;
+}
+
+// The working tree as `git status` presents it (run_git_status).
+interface GitStatus {
+  branch: string;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+  no_commits: boolean;
+  staged: GitChange[];
+  unstaged: GitChange[];
+  untracked: GitChange[];
+  conflicted: GitChange[];
+}
+
 // Per-process detail from the ps_enrich query (spec §6 detail pane).
 interface PsDetail {
   pid: number;
@@ -930,7 +951,7 @@ const HELP_ACTIONS: Array<[string, string]> = [
   ["palette", "Command palette"],
   ["toggle_man", "Toggle man-page panel"],
   ["toggle_preview", "Toggle command preview"],
-  ["enhance_ps", "Enhance ps / cd / du / free / ping / df / uptime / netstat"],
+  ["enhance_ps", "Enhance ps / cd / du / free / ping / df / uptime / netstat / git"],
   ["explain", "Explain typed command (AI)"],
   ["preview_url", "Preview a URL on the line"],
   ["zoom_in", "Zoom in"],
@@ -1466,7 +1487,7 @@ cdEl.addEventListener("mousedown", (e) => {
 });
 
 // The enhance shortcut (Ctrl+Shift+E) is overloaded: a typed `cd` opens the directory
-// tree picker; anything else runs the ps output decorator.
+// tree picker, `git` previews `git status`; anything else runs the ps output decorator.
 function enhanceShortcut(): void {
   const first = (activeTab()?.typed.trimStart() ?? "").split(/\s+/)[0];
   if (first === "cd") void openCdTree();
@@ -1476,8 +1497,119 @@ function enhanceShortcut(): void {
   else if (first === "df") void openDfGauge();
   else if (first === "uptime") void openLoadGauge();
   else if (first === "netstat" || first === "ss") void openNetPanel();
+  else if (first === "git") void openGitPanel();
   else void enhancePs();
 }
+
+// ── git status preview (Ctrl+Shift+E while a `git` command is typed) ──────────
+// Runs a read-only `git status --porcelain -b` in the session cwd (run_git_status) and
+// shows the working tree grouped the way `git status` presents it. The core does the
+// parsing and grouping; this only renders. Preview only — nothing is composed or run.
+const gitEl = document.getElementById("gitpanel")!;
+const gitTitle = document.getElementById("git-title")!;
+const gitBody = document.getElementById("git-body")!;
+
+function closeGitPanel(): void {
+  if (gitEl.hidden) return;
+  gitEl.hidden = true;
+  activeTab()?.term.focus();
+}
+
+// The header line: branch, upstream, and how far it has diverged.
+function renderGitTitle(s: GitStatus): void {
+  gitTitle.replaceChildren();
+  const add = (text: string, cls?: string) => {
+    const el = document.createElement("span");
+    el.textContent = text;
+    if (cls) el.className = cls;
+    gitTitle.appendChild(el);
+  };
+  add(`git status — ${s.branch}`);
+  if (s.no_commits) add("  (no commits yet)", "git-track");
+  if (s.upstream) add(`  ⇢ ${s.upstream}`, "git-track");
+  if (s.ahead) add(`  ↑${s.ahead}`, "git-ahead");
+  if (s.behind) add(`  ↓${s.behind}`, "git-behind");
+}
+
+// One titled group of changed paths; nothing is emitted for an empty group.
+function gitSection(title: string, cls: string, changes: GitChange[]): HTMLElement | null {
+  if (changes.length === 0) return null;
+  const sec = document.createElement("div");
+  sec.className = `git-section ${cls}`;
+  const h = document.createElement("h3");
+  h.textContent = `${title} (${changes.length})`;
+  sec.appendChild(h);
+  for (const c of changes) {
+    const row = document.createElement("div");
+    row.className = "git-row";
+    const label = document.createElement("span");
+    label.className = "git-label";
+    label.textContent = `${c.label}:`;
+    const path = document.createElement("span");
+    path.className = "git-path";
+    path.textContent = c.path;
+    path.title = c.path;
+    row.append(label, path);
+    if (c.orig) {
+      const orig = document.createElement("span");
+      orig.className = "git-orig";
+      orig.textContent = `← ${c.orig}`;
+      row.appendChild(orig);
+    }
+    sec.appendChild(row);
+  }
+  return sec;
+}
+
+function renderGitStatus(s: GitStatus): void {
+  renderGitTitle(s);
+  const sections = [
+    gitSection("Conflicted", "git-conflict", s.conflicted),
+    gitSection("Staged for commit", "git-staged", s.staged),
+    gitSection("Not staged", "git-unstaged", s.unstaged),
+    gitSection("Untracked", "git-untracked", s.untracked),
+  ].filter((el): el is HTMLElement => el !== null);
+  if (sections.length === 0) {
+    const clean = document.createElement("div");
+    clean.className = "git-clean";
+    clean.textContent = "Working tree clean — nothing to commit.";
+    gitBody.replaceChildren(clean);
+    return;
+  }
+  gitBody.replaceChildren(...sections);
+}
+
+async function openGitPanel(): Promise<void> {
+  const t = activeTab();
+  if (!t) return;
+  const cwd = (await invoke<string | null>("get_session_cwd", { session: t.id })) ?? null;
+  if (!cwd) return;
+  gitTitle.textContent = "Reading working tree…";
+  gitBody.replaceChildren();
+  gitEl.hidden = false;
+  gitBody.focus();
+  try {
+    const status = await invoke<GitStatus>("run_git_status", { path: cwd });
+    if (gitEl.hidden) return; // dismissed while git ran
+    renderGitStatus(status);
+  } catch (e) {
+    if (!gitEl.hidden) {
+      gitTitle.textContent = "git status";
+      gitBody.textContent = String(e);
+    }
+  }
+}
+
+document.getElementById("git-close")!.addEventListener("click", closeGitPanel);
+gitEl.addEventListener("mousedown", (e) => {
+  if (e.target === gitEl) closeGitPanel(); // click backdrop to dismiss
+});
+gitBody.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" || e.key === "Enter") {
+    e.preventDefault();
+    closeGitPanel();
+  }
+});
 
 // ── netstat/ss connections table (Ctrl+Shift+E while `netstat`/`ss` is typed) ──
 // Runs `ss -tunap` (run_netstat) and shows the sockets as a table coloured by state.

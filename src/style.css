@@ -1555,3 +1555,122 @@ body {
   color: #565f89;
   font: 11px ui-sans-serif, system-ui, sans-serif;
 }
+
+/* git status preview (Ctrl+Shift+E while a `git` command is typed).
+   The working tree grouped as `git status` presents it: staged / unstaged / untracked /
+   conflicted, coloured by group. Read-only/informational — nothing is composed or run. */
+#gitpanel {
+  position: fixed;
+  inset: 0;
+  z-index: 98;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 8vh;
+  background: rgba(0, 0, 0, 0.45);
+}
+#gitpanel[hidden] {
+  display: none;
+}
+.git-box {
+  width: min(720px, 96%);
+  max-height: 78vh;
+  display: flex;
+  flex-direction: column;
+  background: #1a1b26;
+  border: 1px solid #2a2e42;
+  border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.git-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid #2a2e42;
+  color: #7dcfff;
+  font: 12px ui-monospace, monospace;
+}
+.git-head button {
+  border: none;
+  background: transparent;
+  color: #7a819e;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+}
+.git-head button:hover {
+  color: #c0caf5;
+}
+#git-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  outline: none;
+  padding: 8px 0 10px;
+  color: #a9b1d6;
+  font: 12px ui-monospace, monospace;
+}
+.git-section {
+  padding: 4px 14px 8px;
+}
+.git-section h3 {
+  margin: 6px 0 4px;
+  color: #565f89;
+  font: 11px ui-sans-serif, system-ui, sans-serif;
+  font-weight: normal;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.git-row {
+  display: flex;
+  gap: 10px;
+  padding: 1px 0;
+  white-space: nowrap;
+}
+.git-label {
+  flex: 0 0 11ch;
+  color: #565f89;
+}
+.git-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.git-orig {
+  color: #565f89;
+}
+.git-staged .git-label,
+.git-staged .git-path {
+  color: #9ece6a;
+}
+.git-unstaged .git-label,
+.git-unstaged .git-path {
+  color: #e0af68;
+}
+.git-untracked .git-label,
+.git-untracked .git-path {
+  color: #7a819e;
+}
+.git-conflict .git-label,
+.git-conflict .git-path {
+  color: #f7768e;
+}
+.git-clean {
+  padding: 10px 14px;
+  color: #9ece6a;
+}
+.git-track {
+  color: #565f89;
+}
+.git-ahead {
+  color: #9ece6a;
+}
+.git-behind {
+  color: #e0af68;
+}
+.git-hint {
+  padding: 6px 14px;
+  border-top: 1px solid #2a2e42;
+  color: #565f89;
+  font: 11px ui-sans-serif, system-ui, sans-serif;
+}
