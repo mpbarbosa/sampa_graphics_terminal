@@ -2731,6 +2731,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "sampa-gitdec"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "sampa-helmhelp"
 version = "0.1.0"
 dependencies = [
@@ -2809,6 +2816,7 @@ dependencies = [
  "sampa-freemem",
  "sampa-fsnav",
  "sampa-ghhelp",
+ "sampa-gitdec",
  "sampa-helmhelp",
  "sampa-kubectlhelp",
  "sampa-man",

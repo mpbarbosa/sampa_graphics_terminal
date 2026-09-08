@@ -791,6 +791,82 @@ fn ss_output() -> Option<String> {
     }
 }
 
+/// Working-tree status for the `git` preview (read-only): run `git status --porcelain -b`
+/// in `path` and parse it (`sampa_gitdec`). Porcelain v1 is git's stable machine format,
+/// so it — not the human text — is what's parsed. `git` is executed directly with a fixed
+/// argv (no shell, `-C <path>` for the session cwd, stdin closed) and `LC_ALL=C`; status
+/// can be slow on a large or cold-cache worktree, so it runs off the async runtime with a
+/// wall-clock timeout (the child is killed on expiry). Purely informational — the result
+/// is displayed; nothing is composed or run.
+#[tauri::command]
+async fn run_git_status(path: String) -> Result<sampa_gitdec::GitStatus, String> {
+    tokio::task::spawn_blocking(move || {
+        let out = git_status_output(&path)?;
+        sampa_gitdec::parse_status(&out)
+            .ok_or_else(|| "could not parse git status output".to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Run `git -C <path> status --porcelain -b` with a 6s wall-clock cap (killed on expiry).
+/// A non-zero exit is how git reports "not a git repository" — by far the likeliest
+/// failure here, since the preview follows the session's cwd — so its own message is
+/// carried through rather than folded into a generic error. No shell.
+fn git_status_output(path: &str) -> Result<String, String> {
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+    let mut child = Command::new("git")
+        .args(["-C", path, "status", "--porcelain", "-b"])
+        .env("LC_ALL", "C")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("could not run git: {e}"))?;
+    // Drain both pipes on their own threads: a child blocked writing to a pipe we aren't
+    // reading would never exit, and the timeout below is a backstop, not a substitute.
+    let mut out_pipe = child.stdout.take().ok_or("git stdout unavailable")?;
+    let mut err_pipe = child.stderr.take().ok_or("git stderr unavailable")?;
+    let (tx, rx) = std::sync::mpsc::channel();
+    let err_tx = tx.clone();
+    std::thread::spawn(move || {
+        let mut s = String::new();
+        let _ = out_pipe.read_to_string(&mut s);
+        let _ = tx.send((false, s));
+    });
+    std::thread::spawn(move || {
+        let mut s = String::new();
+        let _ = err_pipe.read_to_string(&mut s);
+        let _ = err_tx.send((true, s));
+    });
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(6);
+    let (mut stdout, mut stderr) = (String::new(), String::new());
+    for _ in 0..2 {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        match rx.recv_timeout(left) {
+            Ok((true, s)) => stderr = s,
+            Ok((false, s)) => stdout = s,
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("git status timed out".to_string());
+            }
+        }
+    }
+    match child.wait() {
+        Ok(st) if st.success() => Ok(stdout),
+        // git's own words ("fatal: not a git repository (or any of the parent directories)").
+        Ok(_) => Err(stderr
+            .lines()
+            .find(|l| !l.trim().is_empty())
+            .unwrap_or("git status failed")
+            .to_string()),
+        Err(e) => Err(format!("git status failed: {e}")),
+    }
+}
+
 /// Disk-usage treemap data (read-only): run `du -k` on `path` and parse it into a sized
 /// tree (`sampa_dumap`). `du` traverses the whole subtree and can be slow, so it runs off
 /// the async runtime with a wall-clock timeout (the child is killed on expiry) and a depth
@@ -1404,6 +1480,7 @@ pub fn run() {
             run_df,
             run_uptime,
             run_netstat,
+            run_git_status,
             open_url,
             suggest_command,
             explain_command,

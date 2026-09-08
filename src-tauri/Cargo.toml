@@ -42,6 +42,7 @@ sampa-helmhelp = { path = "../crates/helmhelp" }
 sampa-awshelp = { path = "../crates/awshelp" }
 sampa-urlpreview = { path = "../crates/urlpreview" }
 sampa-netdec = { path = "../crates/netdec" }
+sampa-gitdec = { path = "../crates/gitdec" }
 # URL-preview fetcher — the second (opt-in) network surface after sampa-ai. Only reached when
 # `[url_preview] enabled = true`; the SSRF/size/redirect guards live in preview_url (lib.rs).
 ureq = "2"
