@@ -560,7 +560,21 @@ There is **no single mechanism** across desktops — implement several:
   `x-terminal-emulator -e`.
 - **freedesktop emerging spec:** implement/participate in **`xdg-terminal-exec`**
   (the emerging standard for "the user's terminal"); provide the entry so
-  spec-aware launchers pick you.
+  spec-aware launchers pick you. Two constraints are easy to miss, and both make
+  the entry silently unselectable rather than failing loudly:
+  - The **desktop-entry filename is the Desktop Entry ID** the spec addresses us
+    by, and an ID may not contain a space — the reference implementation stores
+    ID→path mappings as shell aliases and discards a spaced ID as "possibly
+    misspelled". Hence `productName = "sampa-terminal"` in `tauri.conf.json`
+    (the bundler names the entry after it); the prose name lives in the
+    template's `Name=`.
+  - The entry must declare **`X-TerminalArgExec`** (plus the optional
+    `X-TerminalArgTitle`/`AppId`/`Dir`/`Hold`) so a launcher knows which flag
+    carries the command. Without it a strict implementation discards the entry
+    and a lenient one guesses. Ours map onto the §12.2 argv contract.
+  - User preference is read from `[<desktop>-]xdg-terminals.list` in the XDG
+    config hierarchy; the **desktop-prefixed file outranks the plain one**, so
+    `hyprland-xdg-terminals.list` beats `xdg-terminals.list` under Hyprland.
 - **GNOME:** newer GNOME removed the settings key; document that GNOME users may need
   the `xdg-terminal-exec` path or per-app settings. Don't promise a one-click
   default on GNOME.

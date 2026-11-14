@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Sampa Terminal",
+  "productName": "sampa-terminal",
   "mainBinaryName": "sampa",
   "version": "0.1.0",
   "identifier": "com.sampa.terminal",
