@@ -1,9 +1,14 @@
 [Desktop Entry]
 Type=Application
 Version=1.0
-Name={{name}}
+# Spelled out rather than templated: productName is "sampa-terminal" so that the
+# bundler writes a space-free entry filename (= the Desktop Entry ID that the
+# Default Terminal Specification addresses us by), while the human-facing name
+# below stays prose. Avoid the name placeholder here - it expands in comments too.
+Name=Sampa Terminal
 GenericName=Terminal
 Comment={{comment}}
+TryExec={{exec}}
 Exec={{exec}} %F
 Icon={{icon}}
 Terminal=false
@@ -11,3 +16,12 @@ Categories=System;TerminalEmulator;
 Keywords=shell;prompt;command;cmd;terminal;console;
 StartupNotify=true
 StartupWMClass=Sampa
+# Default Terminal Specification (DESIGN.md §12.3): tell xdg-terminal-exec which
+# flags carry a command and its context, so launchers can run `<term> -e <cmd>`
+# without guessing. These map onto the crates/cli argv contract (§12.2); -e must
+# come last in the launcher's argv, as it consumes the remainder as the command.
+X-TerminalArgExec=-e
+X-TerminalArgTitle=--title
+X-TerminalArgAppId=--class
+X-TerminalArgDir=--working-directory
+X-TerminalArgHold=--hold
